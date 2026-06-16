@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4" main_tree_to_execute="HitBalloon">
+  
+  <BehaviorTree ID="HitBalloon">
+    <Sequence name="MainLoop">
+      <!-- 1. 起飞到 1.0 米高度 -->
+      <Takeoff goal="0.0;-0.9;1.0" auto_arm="0" tolerance="0.1"/>
+      
+      <!-- 2. 旋转到 -90 度（朝向气球方向） -->
+      <GoTo goal="0.0;-0.9;1.0" yaw="-1.570796" yaw_tolerance="0.05" yaw_rate="0.5"/>
+      
+      <!-- 3. 实时跟踪气球并视觉伺服撞击 -->
+      <!-- 主动旋转扫描，先把目标拉进视野 -->
+      <ScanForTarget object_name="red_balloon" confidence_threshold="0.6" yaw_rate="0.35" timeout="8.0" center_gate_x_ratio="0.22" center_gate_y_ratio="0.35" stable_frames="3" detection_hold_time="0.6" />
+      
+      <Parallel success_count="1" failure_count="1">
+        
+        <!-- 持续跟踪：实时计算气球像素坐标 -->
+        <TargetTracker 
+            object_name="red_balloon"
+            confidence_threshold="0.6"
+            pixel_target="{balloon_pixel}" />
+        
+        <!-- 视觉伺服：VX+VZ+yaw_rate PD控制 -->
+        <VisualServo 
+            pixel_target="{balloon_pixel}"
+            k_p_yaw_rate="0.004"
+            k_d_yaw_rate="0.008"
+            k_p_vz="0.002"
+            k_d_vz="0.006"
+            approach_area_threshold="0.025"
+            forward_velocity="0.9"
+            sprint_velocity="0.85"
+            sprint_time="0.55"
+                post_hit_brake_velocity="0.45"
+                post_hit_brake_time="0.45"
+                lost_target_grace_time="0.30"
+                align_gate_ratio="0.18"
+                full_speed_align_ratio="0.08" />
+      </Parallel>
+      
+      <!-- 4. 规划返回起点 -->
+      <GoTo goal="0.0;0.0;1.0" tolerance="0.2" />
+      
+      <!-- 5. 降落 -->
+      <Land use_speed="0" />
+    </Sequence>
+  </BehaviorTree>
+
+</root>
