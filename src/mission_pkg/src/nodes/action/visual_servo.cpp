@@ -74,6 +74,7 @@ NodeStatus VisualServo::onStart() {
     ROS_INFO("[%s]: forward_vel=%.2f sprint_vel=%.2f sprint_time=%.2f brake=%.2fm/s %.2fs area_thresh=%.3f",
              name().c_str(), forward_velocity_, sprint_velocity_, sprint_time_,
              post_hit_brake_velocity_, post_hit_brake_time_, approach_area_threshold_);
+    publishDebugEvent("vs_start", "visual servo active");
 
     return NodeStatus::RUNNING;
 }
@@ -92,12 +93,14 @@ NodeStatus VisualServo::onRunning() {
             return NodeStatus::RUNNING;
         }
         sendHoverCommand();
+        publishDebugEvent("vs_success", "visual servo completed");
         return NodeStatus::SUCCESS;
     }
 
     if (isTargetLost()) {
         publishVelocityWithYawRate(0, 0, 0, 0);
         ROS_WARN_THROTTLE(1.0, "[%s]: Target lost, waiting...", name().c_str());
+        publishDebugEvent("vs_wait", "target lost, waiting");
         return NodeStatus::RUNNING;
     }
 
@@ -122,6 +125,7 @@ NodeStatus VisualServo::onRunning() {
                 if (align_stable_frames_ >= ALIGN_STABLE_FRAMES_REQUIRED) {
                     current_state_ = APPROACHING;
                     align_stable_frames_ = 0;
+                    publishDebugEvent("vs_state", "ALIGN -> APPROACHING");
                 }
             } else {
                 align_stable_frames_ = 0;
@@ -134,6 +138,7 @@ NodeStatus VisualServo::onRunning() {
             if (!isCentered()) {
                 current_state_ = ALIGN;
                 align_stable_frames_ = 0;
+                publishDebugEvent("vs_state", "APPROACHING -> ALIGN");
                 break;
             }
             if (current_ratio >= approach_area_threshold_) {
@@ -141,6 +146,7 @@ NodeStatus VisualServo::onRunning() {
                 sprint_start_time_ = ros::Time::now();
                 ROS_INFO("[%s]: Area %.1f%% >= %.1f%% -> SPRINT!", name().c_str(),
                          current_ratio * 100, approach_area_threshold_ * 100);
+                publishDebugEvent("vs_state", "APPROACHING -> SPRINTING");
             }
             break;
         }
@@ -221,9 +227,10 @@ bool VisualServo::isCentered() const {
     return std::abs(err_x) < tol_w && std::abs(err_y) < tol_h;
 }
 
-NodeStatus VisualServo::startPostHitBrake(const std::string&) {
+NodeStatus VisualServo::startPostHitBrake(const std::string& reason) {
     brake_start_time_ = ros::Time::now();
     current_state_ = BRAKING;
+    publishDebugEvent("vs_state", std::string("SPRINTING -> BRAKING | ") + reason);
     return NodeStatus::RUNNING;
 }
 

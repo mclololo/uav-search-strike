@@ -13,6 +13,7 @@
 #include "utils/common.hpp"
 #include "mavros_cnt.h"
 #include <ros/ros.h>
+#include <std_msgs/String.h>
 
 using namespace BT;
 
@@ -54,6 +55,7 @@ protected:
     bool throttledArm(bool value, double interval_sec = 5.0);
     bool checkArrival(const geometry_msgs::Point& target, double tolerance = 0.2, 
                      double target_yaw = NAN, double yaw_tolerance = 0.1);
+    void publishDebugEvent(const std::string& stage, const std::string& detail) const;
 
 private:
     ros::Time last_request_time;
@@ -62,6 +64,7 @@ private:
     bool hover_active_{false};
     geometry_msgs::Point hover_pos_;
     double hover_yaw_{0.0};
+    ros::Publisher debug_pub_;
 };
 
 #endif // DRONE_ACTION_NODE_H

@@ -7,6 +7,8 @@
  ******************************************************************************/
 #include "base/drone_action_node.h"
 #include "utils/pose_utils.h"
+#include <iomanip>
+#include <sstream>
 
 DroneActionNode::DroneActionNode(const std::string& name, const NodeConfig& config)
     : StatefulActionNode(name, config) {
@@ -16,11 +18,38 @@ DroneActionNode::DroneActionNode(const std::string& name, const NodeConfig& conf
     pos_target_pub = *mct->getPosTgtPublisher();
     set_mode_client = mct->getSetModeClient();
     arming_client = mct->getArmClient();
+    auto nh = mct->getROSHandle();
+    std::string debug_topic;
+    nh->param<std::string>("mission_debug_topic", debug_topic, "/mission_debug");
+    debug_pub_ = nh->advertise<std_msgs::String>(debug_topic, 50);
     last_request_time = ros::Time(0);
+}
+
+
+void DroneActionNode::publishDebugEvent(const std::string& stage, const std::string& detail) const {
+    if (!debug_pub_) {
+        return;
+    }
+
+    std_msgs::String msg;
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(2);
+    oss << "[" << name() << "] " << stage << " | " << detail;
+    if (fcu_state_ptr) {
+        oss << " | mode=" << fcu_state_ptr->mode << " armed=" << (fcu_state_ptr->armed ? "1" : "0");
+    }
+    if (fcu_odom_ptr) {
+        oss << " | pos=(" << fcu_odom_ptr->pose.pose.position.x << ","
+            << fcu_odom_ptr->pose.pose.position.y << ","
+            << fcu_odom_ptr->pose.pose.position.z << ")";
+    }
+    msg.data = oss.str();
+    debug_pub_.publish(msg);
 }
 
 void DroneActionNode::onHalted() {
     ROS_INFO("[%s]: Halted, entering hover mode.", name().c_str());
+    publishDebugEvent("halted", "node halted, switching to hover");
     sendHoverCommand();
 }
 
@@ -123,6 +152,7 @@ void DroneActionNode::sendHoverCommand() {
         hover_active_ = true;
         ROS_INFO("[%s]: Maintaining hover at (%.2f, %.2f, %.2f) yaw: %.2f", 
                  name().c_str(), hover_pos_.x, hover_pos_.y, hover_pos_.z, hover_yaw_);
+        publishDebugEvent("hover", "captured hover point");
     }
 
     // 直接构造命令发送，避免调用 publishPosition 重置标志
@@ -154,6 +184,7 @@ bool DroneActionNode::throttledSetMode(const std::string& mode, double interval_
         mode_msg.request.custom_mode = mode;
         if (set_mode_client->call(mode_msg) && mode_msg.response.mode_sent) {
             ROS_INFO("[%s]: Requesting mode %s", name().c_str(), mode.c_str());
+            publishDebugEvent("mode_request", std::string("request ") + mode);
         }
         last_request_time = now;
         return true;
@@ -168,6 +199,7 @@ bool DroneActionNode::throttledArm(bool value, double interval_sec) {
         arm_msg.request.value = value;
         if (arming_client->call(arm_msg) && arm_msg.response.success) {
             ROS_INFO("[%s]: Requesting %s", name().c_str(), value ? "ARM" : "DISARM");
+            publishDebugEvent("arm_request", value ? "request ARM" : "request DISARM");
         }
         last_request_time = now;
         return true;

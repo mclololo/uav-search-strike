@@ -283,13 +283,14 @@ std::string commandToXmlNode(const std::string& command) {
         double      turn_yaw     = getDbl("return_cross_frame/turn_yaw",   3.14159);
         std::string body_fwd     = getStr("return_cross_frame/body_forward", "0.5;0.0;0.0");
         double      exit_yaw     = getDbl("return_cross_frame/exit_yaw",   0.0);
+        double      offset_z     = getDbl("return_cross_frame/offset_z",   1.0);
         return
             "      <!-- 旋转180度 -->\n"
             "      <GoTo goal=\"" + turn_pos + "\" yaw=\"" + std::to_string(turn_yaw) + "\"/>\n"
-            "      <!-- 返回规划终点 -->\n"
-            "      <GoTo goal=\"{planning_end_pos}\"/>\n"
+            "      <!-- 规划返回穿框入口，避免直线撞柱 -->\n"
+            "      <PlanningControl goal=\"{planning_end_pos}\"/>\n"
             "      <!-- 反向穿越方框 -->\n"
-            "      <PlanningControl goal=\"{frame_center}\"/>\n"
+            "      <PlanningControl goal=\"{frame_center}\" offset_z=\"" + std::to_string(offset_z) + "\"/>\n"
             "      <!-- 机体系前进 -->\n"
             "      <GoTo goal=\"" + body_fwd + "\" frame=\"1\"/>\n"
             "      <!-- 掉头朝向气球区域 -->\n"
@@ -320,6 +321,13 @@ std::string commandToXmlNode(const std::string& command) {
         std::string yaw = std::to_string(yaw_val);
         std::string balloon_name = color + "_balloon";
         
+        double scan_yaw_rate = getDbl("balloon_scan/yaw_rate", 0.35);
+        double scan_timeout = getDbl("balloon_scan/timeout", 8.0);
+        double scan_center_gate_x = getDbl("balloon_scan/center_gate_x_ratio", 0.22);
+        double scan_center_gate_y = getDbl("balloon_scan/center_gate_y_ratio", 0.35);
+        int scan_stable_frames = (int)getDbl("balloon_scan/stable_frames", 3);
+        double scan_hold_time = getDbl("balloon_scan/detection_hold_time", 0.6);
+
         std::string vs_k_p_yaw  = std::to_string(getDbl("visual_servo/k_p_yaw_rate", 0.004));
         std::string vs_k_d_yaw  = std::to_string(getDbl("visual_servo/k_d_yaw_rate", 0.008));
         std::string vs_k_p_vz   = std::to_string(getDbl("visual_servo/k_p_vz", 0.01));
@@ -330,6 +338,11 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_sprint_t = std::to_string(getDbl("visual_servo/sprint_time", 0.55));
         std::string vs_brake_v  = std::to_string(getDbl("visual_servo/post_hit_brake_velocity", 0.45));
         std::string vs_brake_t  = std::to_string(getDbl("visual_servo/post_hit_brake_time", 0.45));
+        std::string vs_data_timeout = std::to_string(getDbl("visual_servo/data_timeout", 1.0));
+        std::string tracker_grace_time = std::to_string(getDbl("target_tracker/lost_target_grace_time", 0.8));
+        std::string scan_phase_duration = std::to_string(getDbl("balloon_scan/phase_duration", 2.5));
+        std::string scan_lateral_velocity = std::to_string(getDbl("balloon_scan/lateral_velocity", 0.18));
+        std::string scan_backward_velocity = std::to_string(getDbl("balloon_scan/backward_velocity", 0.12));
         std::string balloon_conf = std::to_string(getDbl("balloon_detection/confidence_threshold", 0.60));
         
         ROS_INFO("Hit balloon: color=%s -> zone=%s, approach=%s, goto=%s, yaw=%s, target=%s", 
@@ -340,17 +353,25 @@ std::string commandToXmlNode(const std::string& command) {
             "      <PlanningControl goal=\"" + approach_pos + "\"/>\n"
             "      <!-- 转向朝向" + zone + "区气球(" + color + ") -->\n"
             "      <GoTo goal=\"" + goto_pos + "\" yaw=\"" + yaw + "\"/>\n"
+            "      <!-- 主动旋转扫描，先把目标拉进视野 -->\n"
+            "      <ScanForTarget object_name=\"" + balloon_name + "\" confidence_threshold=\"" + balloon_conf + "\" "
+            "yaw_rate=\"" + std::to_string(scan_yaw_rate) + "\" timeout=\"" + std::to_string(scan_timeout) + "\" "
+            "center_gate_x_ratio=\"" + std::to_string(scan_center_gate_x) + "\" center_gate_y_ratio=\"" + std::to_string(scan_center_gate_y) + "\" "
+            "stable_frames=\"" + std::to_string(scan_stable_frames) + "\" detection_hold_time=\"" + std::to_string(scan_hold_time) + "\" "
+            "phase_duration=\"" + scan_phase_duration + "\" lateral_velocity=\"" + scan_lateral_velocity + "\" backward_velocity=\"" + scan_backward_velocity + "\"/>\n"
             "      <!-- 跟踪并撞击气球 -->\n"
             "      <ForceSuccess>\n"
             "        <Timeout msec=\"50000\">\n"
             "          <Parallel success_count=\"1\" failure_count=\"1\">\n"
-            "            <TargetTracker object_name=\"" + balloon_name + "\" confidence_threshold=\"" + balloon_conf + "\" pixel_target=\"{balloon_pixel}\"/>\n"
+            "            <TargetTracker object_name=\"" + balloon_name + "\" confidence_threshold=\"" + balloon_conf + "\" pixel_target=\"{balloon_pixel}\" "
+            "lost_target_grace_time=\"" + tracker_grace_time + "\"/>\n"
             "            <VisualServo pixel_target=\"{balloon_pixel}\" "
             "k_p_yaw_rate=\"" + vs_k_p_yaw + "\" k_d_yaw_rate=\"" + vs_k_d_yaw + "\" "
             "k_p_vz=\"" + vs_k_p_vz + "\" k_d_vz=\"" + vs_k_d_vz + "\" "
             "approach_area_threshold=\"" + vs_area_th + "\" "
             "forward_velocity=\"" + vs_fwd_vel + "\" sprint_velocity=\"" + vs_sprint_v + "\" sprint_time=\"" + vs_sprint_t + "\" "
-            "post_hit_brake_velocity=\"" + vs_brake_v + "\" post_hit_brake_time=\"" + vs_brake_t + "\"/>\n"
+            "post_hit_brake_velocity=\"" + vs_brake_v + "\" post_hit_brake_time=\"" + vs_brake_t + "\" "
+            "data_timeout=\"" + vs_data_timeout + "\"/>\n"
             "          </Parallel>\n"
             "        </Timeout>\n"
             "      </ForceSuccess>\n";
@@ -363,7 +384,7 @@ std::string commandToXmlNode(const std::string& command) {
             "      <GoTo goal=\"0.0;0.0;0.5\" yaw=\"" + std::to_string(ret_yaw) + "\"/>\n"
             "      <Land/>\n";
     }
-    
+
     ROS_WARN("Unknown LLM command: '%s', skipping.", cmd.c_str());
     return "";
 }

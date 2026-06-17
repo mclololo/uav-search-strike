@@ -75,6 +75,7 @@ void PlanningControl::initializeTarget(const Position3D& pos) {
     target_initialized = true;
     ROS_INFO("[%s]: Target acquired! Planning navigation start -> (%.2f, %.2f, %.2f), offset: %.2f", 
              name().c_str(), target_x, target_y, target_z, offset_z);
+    publishDebugEvent("plan_start", "goal=(" + std::to_string(target_x) + "," + std::to_string(target_y) + "," + std::to_string(target_z) + ") offset_z=" + std::to_string(offset_z));
 }
 
 NodeStatus PlanningControl::onStart() {
@@ -132,6 +133,7 @@ NodeStatus PlanningControl::onRunning() {
     target.z = target_pos_.z;
     if (checkArrival(target, tolerance)) {
         ROS_INFO("[%s]: Planning navigation completed.", name().c_str());
+        publishDebugEvent("plan_success", "planner target reached");
         
         // 输出最终到达的位置
         Position3D final_pos;

@@ -20,9 +20,9 @@
       <!-- 6. 旋转180度 -->
       <GoTo goal="4.5;0.5;1.8" yaw="3.14159"/>
       <!-- 7. 返回规划终点 -->
-      <GoTo goal="{planning_end_pos}"/>
+      <PlanningControl goal="{planning_end_pos}"/>
       <!-- 8. 反向穿过方框 -->
-      <PlanningControl goal="{frame_center}"/>
+      <PlanningControl goal="{frame_center}" offset_z="1.0"/>
       <!-- 9. 机体系前进20cm -->
       <GoTo goal="0.5;0.0;0.0" frame="1"/>
       <!-- 9.5 掉头朝向C区（从yaw≈π转到yaw=0，面向+x方向） -->
@@ -41,7 +41,7 @@
       <!-- 12. 跟踪并撞击A区气球 -->
       <!-- 超时后 Timeout 返回 FAILURE，ForceSuccess 将其转为 SUCCESS -->
       <!-- 主动旋转扫描，先把目标拉进视野 -->
-      <ScanForTarget object_name="red_balloon" confidence_threshold="0.6" yaw_rate="0.35" timeout="8.0" center_gate_x_ratio="0.22" center_gate_y_ratio="0.35" stable_frames="3" detection_hold_time="0.6" />
+      <ScanForTarget object_name="red_balloon" confidence_threshold="0.6" yaw_rate="0.35" timeout="12.0" center_gate_x_ratio="0.35" center_gate_y_ratio="0.45" stable_frames="1" detection_hold_time="0.3" phase_duration="2.5" lateral_velocity="0.18" backward_velocity="0.12" />
       
       <ForceSuccess>
         <Timeout msec="50000">
@@ -51,7 +51,7 @@
             <TargetTracker 
                 object_name="red_balloon"
                 confidence_threshold="0.6"
-                pixel_target="{balloon_pixel}" />
+                pixel_target="{balloon_pixel}" lost_target_grace_time="0.8" />
             
             <!-- 视觉伺服：VX+VZ+yaw_rate PD控制 -->
             <!-- k_p_yaw_rate="0.004" k_d_yaw_rate="0.008" k_p_vz="0.002" k_d_vz="0.006" approach_area_threshold="0.025" forward_velocity="0.9" sprint_velocity="0.85" sprint_time="0.55" -->
@@ -66,8 +66,7 @@
                 sprint_velocity="0.85"
                 sprint_time="0.55"
                 post_hit_brake_velocity="0.45"
-                post_hit_brake_time="0.45"
-                lost_target_grace_time="0.30"
+                post_hit_brake_time="0.45" data_timeout="1.0"
                 align_gate_ratio="0.18"
                 full_speed_align_ratio="0.08" />
           </Parallel>

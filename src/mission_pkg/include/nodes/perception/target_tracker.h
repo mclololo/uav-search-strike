@@ -26,6 +26,9 @@ protected:
 private:
     std::deque<PixelTarget> pixel_history;
     int filter_window_size{10};
+    double lost_target_grace_time_{0.8};
+    PixelTarget last_valid_target_;
+    bool has_last_valid_target_{false};
 
     PixelTarget getSmoothedPixel();
 };

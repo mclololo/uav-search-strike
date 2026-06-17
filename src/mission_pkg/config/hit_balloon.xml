@@ -11,7 +11,7 @@
       
       <!-- 3. 实时跟踪气球并视觉伺服撞击 -->
       <!-- 主动旋转扫描，先把目标拉进视野 -->
-      <ScanForTarget object_name="red_balloon" confidence_threshold="0.6" yaw_rate="0.35" timeout="8.0" center_gate_x_ratio="0.22" center_gate_y_ratio="0.35" stable_frames="3" detection_hold_time="0.6" />
+      <ScanForTarget object_name="red_balloon" confidence_threshold="0.6" yaw_rate="0.35" timeout="8.0" center_gate_x_ratio="0.22" center_gate_y_ratio="0.35" stable_frames="3" detection_hold_time="0.6" phase_duration="2.5" lateral_velocity="0.18" backward_velocity="0.12" />
       
       <Parallel success_count="1" failure_count="1">
         
@@ -19,7 +19,7 @@
         <TargetTracker 
             object_name="red_balloon"
             confidence_threshold="0.6"
-            pixel_target="{balloon_pixel}" />
+            pixel_target="{balloon_pixel}" lost_target_grace_time="0.8" />
         
         <!-- 视觉伺服：VX+VZ+yaw_rate PD控制 -->
         <VisualServo 
@@ -34,7 +34,6 @@
             sprint_time="0.55"
                 post_hit_brake_velocity="0.45"
                 post_hit_brake_time="0.45"
-                lost_target_grace_time="0.30"
                 align_gate_ratio="0.18"
                 full_speed_align_ratio="0.08" />
       </Parallel>

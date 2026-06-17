@@ -84,6 +84,7 @@ NodeStatus GoTo::onStart() {
 
     ROS_INFO("[%s]: GoTo start -> target: (%.2f, %.2f, %.2f), yaw: %.2f, frame: %d, tol: %.2f, yaw_tol: %.2f, yaw_rate: %.2f", 
              name().c_str(), target_pos.x, target_pos.y, target_pos.z, target_yaw, frame, tolerance, yaw_tolerance, yaw_rate_limit);
+    publishDebugEvent("goto_start", "target=(" + std::to_string(target_pos.x) + "," + std::to_string(target_pos.y) + "," + std::to_string(target_pos.z) + ") frame=" + std::to_string(frame));
     return NodeStatus::RUNNING;
 }
 
@@ -120,6 +121,7 @@ NodeStatus GoTo::onRunning() {
     double arrival_yaw = check_yaw ? target_yaw : std::numeric_limits<double>::quiet_NaN();
     if (checkArrival(target_pos, tolerance, arrival_yaw, yaw_tolerance)) {
         ROS_INFO("[%s]: GoTo completed (pos & yaw).", name().c_str());
+        publishDebugEvent("goto_success", "reached target");
         sendHoverCommand();
         return NodeStatus::SUCCESS;
     }

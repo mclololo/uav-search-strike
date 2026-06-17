@@ -15,6 +15,7 @@
 
     <!-- 目标检测话题 -->
     <param name="detect_result_topic" value="/objects" type="str"/>
+    <param name="mission_debug_topic" value="/mission_debug" type="str"/>
 
     <!-- 到达判定容差 -->
     <param name="tolerance" value="0.15" type="double"/>
@@ -56,6 +57,7 @@
     <param name="return_cross_frame/turn_pos"     value="4.5;0.5;1.8"   type="str"/>    <!-- 转向位置 -->
     <param name="return_cross_frame/turn_yaw"     value="3.14159"        type="double"/> <!-- 转向航向(rad) -->
     <param name="return_cross_frame/body_forward"  value="0.5;0.0;0.0"   type="str"/>    <!-- 机体系前进距离 -->
+    <param name="return_cross_frame/offset_z"      value="1.0"           type="double"/> <!-- 反向穿框偏移 -->
 
     <!-- 降落 -->
     <param name="land/return_yaw" value="0.0" type="double"/>         <!-- 降落前航向(rad) -->
@@ -98,13 +100,28 @@
     <param name="visual_servo/k_d_yaw_rate"            value="0.001" type="double"/>
     <param name="visual_servo/k_p_vz"                  value="0.01"  type="double"/>
     <param name="visual_servo/k_d_vz"                  value="0.006" type="double"/>
-    <param name="visual_servo/approach_area_threshold"  value="0.06"  type="double"/>
+    <param name="visual_servo/approach_area_threshold"  value="0.025"  type="double"/>
     <param name="visual_servo/forward_velocity"         value="0.9"   type="double"/>
     <param name="visual_servo/sprint_velocity"          value="0.85"   type="double"/>
     <param name="visual_servo/sprint_time"              value="0.55"  type="double"/>
     <param name="visual_servo/post_hit_brake_velocity"  value="0.45"  type="double"/>
     <param name="visual_servo/post_hit_brake_time"      value="0.45"  type="double"/>
+    <param name="visual_servo/data_timeout"              value="1.0"   type="double"/>
     <param name="balloon_detection/confidence_threshold" value="0.60" type="double"/>
+    <param name="target_tracker/lost_target_grace_time" value="0.8" type="double"/>
+
+    <!-- ============================================ -->
+    <!-- 打击前主动扫描参数                            -->
+    <!-- ============================================ -->
+    <param name="balloon_scan/yaw_rate"             value="0.35" type="double"/>
+    <param name="balloon_scan/timeout"              value="12.0" type="double"/>
+    <param name="balloon_scan/center_gate_x_ratio"  value="0.35" type="double"/>
+    <param name="balloon_scan/center_gate_y_ratio"  value="0.45" type="double"/>
+    <param name="balloon_scan/stable_frames"        value="1"    type="int"/>
+    <param name="balloon_scan/detection_hold_time"  value="0.3"  type="double"/>
+    <param name="balloon_scan/phase_duration"       value="2.5"  type="double"/>
+    <param name="balloon_scan/lateral_velocity"     value="0.18" type="double"/>
+    <param name="balloon_scan/backward_velocity"    value="0.12" type="double"/>
 
 
     <!-- 运行任务节点（LLM 模式） -->
