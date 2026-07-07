@@ -84,13 +84,15 @@ _MIN_PIXEL_COUNT = 30  # 低于此值认为该颜色不存在
 
 def classify_balloon_color(
     image_bgr: np.ndarray,
-    bbox: Tuple[int, int, int, int]
+    bbox: Tuple[int, int, int, int],
+    is_simulation: bool = True
 ) -> Tuple[str, Optional[Tuple[int, int]]]:
     """对检测框内的气球进行 HSV 颜色分类
 
     Args:
-        image_bgr: BGR 格式图像
+        image_bgr: BGR 格式图像（is_simulation=True）或 RGB 格式图像（is_simulation=False）
         bbox: (x1, y1, x2, y2) 检测框坐标
+        is_simulation: 是否为仿真环境。仿真图像为 BGR，真机图像为 RGB
 
     Returns:
         (color_name, center):
@@ -103,9 +105,13 @@ def classify_balloon_color(
     if roi_bgr.size == 0:
         return "unknown", None
 
-    # 注意：image_bgr 在 is_simulation=False 时实际通道顺序是 RGB，
-    # 对 YOLO 和可视化是对的，但 HSV 颜色分类需要用 RGB2HSV
-    roi_hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_RGB2HSV)
+    # 根据环境选择正确的颜色空间转换：
+    # - 仿真环境：image_bgr 实际为 BGR，使用 COLOR_BGR2HSV
+    # - 真机环境：image_bgr 实际为 RGB，使用 COLOR_RGB2HSV
+    if is_simulation:
+        roi_hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+    else:
+        roi_hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_RGB2HSV)
 
     best_color = "unknown"
     best_count = 0
@@ -385,7 +391,7 @@ class ObjectDetectionColorNode:
             # ===== 关键改动：balloon 类别 → 颜色分类 =====
             # 模型类别可能是 "balloon" 或 "red_balloon" 等，只要包含 balloon 就做颜色分类
             if "balloon" in obj.class_name:
-                color, center = classify_balloon_color(image_bgr, bbox)
+                color, center = classify_balloon_color(image_bgr, bbox, self.config.is_simulation)
 
                 # 用颜色后缀替换类名
                 if color != "unknown":
@@ -441,7 +447,7 @@ class ObjectDetectionColorNode:
                 vis_color = None
                 if "balloon" in label:
                     bbox = (int(x1), int(y1), int(x2), int(y2))
-                    color, _ = classify_balloon_color(image, bbox)
+                    color, _ = classify_balloon_color(image, bbox, self.config.is_simulation)
                     if color != "unknown":
                         display_label = color + "_balloon"
                         vis_color = color_map.get(display_label)
