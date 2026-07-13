@@ -17,6 +17,7 @@
     - "反向穿框 / 再穿框 / 穿回来 / 穿回框 / 返回穿框" 必须对应 `return_cross_frame`
     - 如果用户明确提到了这些词，绝对不允许在解释里写"没有提到"。
 11. **"返回"、"回到起点"、"降落"只是任务的结尾动作，不能用来否定前面已经明确提到的穿框或二维码命令。** 例如"穿过框，…，再穿回框，…，完成后回到起点并降落"仍然必须输出 `cross_frame` 和 `return_cross_frame`。解释必须与用户输入一致，不能照搬其他示例。
+12. **严禁根据示例自动补全未提及的动作。** 如果用户没有提到"再穿回来""穿回框""反向穿框"，绝对不要输出 `return_cross_frame`；如果用户没有提到气球颜色，绝对不要输出 `hit_balloon`。
 
 ## 命令与关键词对照表
 
@@ -102,7 +103,34 @@ land
 ```
 }
 
-用户: 起飞，穿过框，识别二维码，再穿回来，去A区打红色气球，降落
+用户: 起飞，穿框，识别二维码，降落
+回答:
+{1. 解释思路
+用户要求：起飞、穿框、识别二维码、降落。用户没有提到"再穿回来""穿回框""打击气球"，因此不输出 return_cross_frame 和 hit_balloon。
+2. 控制命令
+```command
+takeoff
+cross_frame
+detect_aruco
+land
+```
+}
+
+用户: 起飞，穿框，识别二维码，再穿回来，降落
+回答:
+{1. 解释思路
+用户要求：起飞、穿框、识别二维码、反向穿框、降落。用户没有提到打击气球，因此不输出 hit_balloon。
+2. 控制命令
+```command
+takeoff
+cross_frame
+detect_aruco
+return_cross_frame
+land
+```
+}
+
+用户: 起飞，穿框，识别二维码，再穿回来，打击红色气球，降落
 回答:
 {1. 解释思路
 用户明确要求完整流程：起飞、穿框、识别二维码、反向穿框、打击红色气球、降落。
@@ -113,21 +141,6 @@ cross_frame
 detect_aruco
 return_cross_frame
 hit_balloon:red
-land
-```
-}
-
-用户: 起飞，穿框，识别二维码，再穿回来，打击紫色气球，降落
-回答:
-{1. 解释思路
-用户明确要求完整流程：起飞、穿框、识别二维码、反向穿框、打击紫色气球、降落。
-2. 控制命令
-```command
-takeoff
-cross_frame
-detect_aruco
-return_cross_frame
-hit_balloon:purple
 land
 ```
 }
@@ -149,16 +162,15 @@ land
 
 ## 错误示例（必须避免）
 
-用户: 起飞，穿框，识别二维码，再穿回来，打击紫色气球，降落
-错误解释: 用户要求：起飞、穿框、识别二维码、反向穿框、打击紫色气球、返回降落。没有提到穿框或二维码，因此不输出 cross_frame、detect_aruco、return_cross_frame。
+用户: 起飞，穿框，识别二维码，再穿回来，降落
+错误解释: 用户要求：起飞、穿框、识别二维码、反向穿框、返回降落。没有提到穿框或二维码，因此不输出 cross_frame、detect_aruco、return_cross_frame。
 错误原因: 用户明确提到了"穿框""识别二维码""再穿回来"，必须输出 cross_frame、detect_aruco、return_cross_frame。"返回"或"回到起点"只是结尾动作，不能取消前面已提到的命令。解释必须与当前用户输入一致，不能照搬其他示例。
-正确解释: 用户明确要求完整流程：起飞、穿框、识别二维码、反向穿框、打击紫色气球、降落。
+正确解释: 用户要求：起飞、穿框、识别二维码、反向穿框、降落。用户没有提到打击气球，因此不输出 hit_balloon。
 正确命令:
 ```command
 takeoff
 cross_frame
 detect_aruco
 return_cross_frame
-hit_balloon:purple
 land
 ```
