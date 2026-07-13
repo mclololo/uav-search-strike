@@ -23,7 +23,8 @@ private:
         ALIGN,
         APPROACHING,
         SPRINTING,
-        BRAKING
+        BRAKING,
+        RECOVERY
     };
 
     ServoState current_state_;
@@ -58,6 +59,14 @@ private:
     double approach_area_threshold_;
     double center_tolerance_;
 
+    // 目标丢失后的主动恢复参数
+    double recovery_delay_;            // 丢失多久后进入恢复 (s)
+    double recovery_backoff_velocity_; // 后退速度 (m/s, 负值)
+    double recovery_backoff_time_;     // 后退持续时间 (s)
+    double recovery_yaw_rate_;         // 恢复阶段扫描角速度 (rad/s)
+    double recovery_total_timeout_;    // 恢复阶段总超时 (s)
+    ros::Time recovery_start_time_;
+
     double prev_err_x_, prev_err_y_;
     ros::Time prev_time_;
 
@@ -68,6 +77,10 @@ private:
     double targetAge() const;
     bool isCentered() const;
     NodeStatus startPostHitBrake(const std::string& reason);
+
+    // 目标丢失恢复
+    NodeStatus startRecovery();
+    NodeStatus executeRecovery();
 
     double computeYawRate(double err_x, double dt);
     double computeVz(double err_y, double dt);

@@ -344,37 +344,53 @@ std::string commandToXmlNode(const std::string& command) {
         std::string scan_lateral_velocity = std::to_string(getDbl("balloon_scan/lateral_velocity", 0.18));
         std::string scan_backward_velocity = std::to_string(getDbl("balloon_scan/backward_velocity", 0.12));
         std::string balloon_conf = std::to_string(getDbl("balloon_detection/confidence_threshold", 0.60));
-        
-        ROS_INFO("Hit balloon: color=%s -> zone=%s, approach=%s, goto=%s, yaw=%s, target=%s", 
+        int retry_attempts = (int)getDbl("balloon_scan/retry_attempts", 2);
+        if (retry_attempts < 1) retry_attempts = 1;
+
+        std::string vs_recovery_delay = std::to_string(getDbl("visual_servo/recovery_delay", 0.15));
+        std::string vs_recovery_backoff_v = std::to_string(getDbl("visual_servo/recovery_backoff_velocity", -0.25));
+        std::string vs_recovery_backoff_t = std::to_string(getDbl("visual_servo/recovery_backoff_time", 0.8));
+        std::string vs_recovery_yaw = std::to_string(getDbl("visual_servo/recovery_yaw_rate", 0.5));
+        std::string vs_recovery_timeout = std::to_string(getDbl("visual_servo/recovery_total_timeout", 3.0));
+
+        ROS_INFO("Hit balloon: color=%s -> zone=%s, approach=%s, goto=%s, yaw=%s, target=%s",
                  color.c_str(), zone.c_str(), approach_pos.c_str(), goto_pos.c_str(), yaw.c_str(), balloon_name.c_str());
-        
+
         return
             "      <!-- 规划飞到气球打击区域" + zone + " -->\n"
             "      <PlanningControl goal=\"" + approach_pos + "\"/>\n"
             "      <!-- 转向朝向" + zone + "区气球(" + color + ") -->\n"
             "      <GoTo goal=\"" + goto_pos + "\" yaw=\"" + yaw + "\"/>\n"
-            "      <!-- 主动旋转扫描，先把目标拉进视野 -->\n"
-            "      <ScanForTarget object_name=\"" + balloon_name + "\" confidence_threshold=\"" + balloon_conf + "\" "
+            "      <!-- 主动扫描+跟踪，支持丢失后重试 -->\n"
+            "      <RetryUntilSuccessful num_attempts=\"" + std::to_string(retry_attempts) + "\">\n"
+            "        <Sequence name=\"AcquireAndHit\">\n"
+            "          <!-- 主动旋转扫描，先把目标拉进视野 -->\n"
+            "          <ScanForTarget object_name=\"" + balloon_name + "\" confidence_threshold=\"" + balloon_conf + "\" "
             "yaw_rate=\"" + std::to_string(scan_yaw_rate) + "\" timeout=\"" + std::to_string(scan_timeout) + "\" "
             "center_gate_x_ratio=\"" + std::to_string(scan_center_gate_x) + "\" center_gate_y_ratio=\"" + std::to_string(scan_center_gate_y) + "\" "
             "stable_frames=\"" + std::to_string(scan_stable_frames) + "\" detection_hold_time=\"" + std::to_string(scan_hold_time) + "\" "
             "phase_duration=\"" + scan_phase_duration + "\" lateral_velocity=\"" + scan_lateral_velocity + "\" backward_velocity=\"" + scan_backward_velocity + "\"/>\n"
-            "      <!-- 跟踪并撞击气球 -->\n"
-            "      <ForceSuccess>\n"
-            "        <Timeout msec=\"50000\">\n"
-            "          <Parallel success_count=\"1\" failure_count=\"1\">\n"
-            "            <TargetTracker object_name=\"" + balloon_name + "\" confidence_threshold=\"" + balloon_conf + "\" pixel_target=\"{balloon_pixel}\" "
+            "          <!-- 跟踪并撞击气球 -->\n"
+            "          <ForceSuccess>\n"
+            "            <Timeout msec=\"50000\">\n"
+            "              <Parallel success_count=\"1\" failure_count=\"1\">\n"
+            "                <TargetTracker object_name=\"" + balloon_name + "\" confidence_threshold=\"" + balloon_conf + "\" pixel_target=\"{balloon_pixel}\" "
             "lost_target_grace_time=\"" + tracker_grace_time + "\"/>\n"
-            "            <VisualServo pixel_target=\"{balloon_pixel}\" "
+            "                <VisualServo pixel_target=\"{balloon_pixel}\" "
             "k_p_yaw_rate=\"" + vs_k_p_yaw + "\" k_d_yaw_rate=\"" + vs_k_d_yaw + "\" "
             "k_p_vz=\"" + vs_k_p_vz + "\" k_d_vz=\"" + vs_k_d_vz + "\" "
             "approach_area_threshold=\"" + vs_area_th + "\" "
             "forward_velocity=\"" + vs_fwd_vel + "\" sprint_velocity=\"" + vs_sprint_v + "\" sprint_time=\"" + vs_sprint_t + "\" "
             "post_hit_brake_velocity=\"" + vs_brake_v + "\" post_hit_brake_time=\"" + vs_brake_t + "\" "
-            "data_timeout=\"" + vs_data_timeout + "\"/>\n"
-            "          </Parallel>\n"
-            "        </Timeout>\n"
-            "      </ForceSuccess>\n";
+            "data_timeout=\"" + vs_data_timeout + "\" "
+            "recovery_delay=\"" + vs_recovery_delay + "\" recovery_backoff_velocity=\"" + vs_recovery_backoff_v + "\" "
+            "recovery_backoff_time=\"" + vs_recovery_backoff_t + "\" recovery_yaw_rate=\"" + vs_recovery_yaw + "\" "
+            "recovery_total_timeout=\"" + vs_recovery_timeout + "\"/>\n"
+            "              </Parallel>\n"
+            "            </Timeout>\n"
+            "          </ForceSuccess>\n"
+            "        </Sequence>\n"
+            "      </RetryUntilSuccessful>\n";
     }
     
     // ---- land ----
