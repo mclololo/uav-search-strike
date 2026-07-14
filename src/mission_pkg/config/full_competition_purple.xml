@@ -39,48 +39,47 @@
       <!-- 11. 旋转朝向B区气球方向（yaw，即朝+Y方向） -->
       <GoTo goal="5.3;-2.0;0.7" yaw="3.14159"/>
       <!-- 12. 跟踪并撞击B区气球 -->
-      <!-- 超时后 Timeout 返回 FAILURE，ForceSuccess 将其转为 SUCCESS -->
-      <!-- 主动旋转扫描，先把目标拉进视野 -->
-      <ScanForTarget object_name="purple_balloon" confidence_threshold="0.6" yaw_rate="0.35" timeout="12.0" center_gate_x_ratio="0.35" center_gate_y_ratio="0.45" stable_frames="1" detection_hold_time="0.3" phase_duration="2.5" lateral_velocity="0.18" backward_velocity="0.12" />
-      
-      <ForceSuccess>
-        <Timeout msec="50000">
-          <Parallel success_count="1" failure_count="1">
-        
-        <!-- 持续跟踪：实时计算气球像素坐标 -->
-            <TargetTracker 
-                object_name="purple_balloon"
-                confidence_threshold="0.6"
-                pixel_target="{balloon_pixel}" lost_target_grace_time="0.8" />
-            
-            <!-- 视觉伺服：VX+VZ+yaw_rate PD控制 -->
-            <!-- k_p_yaw_rate="0.004" k_d_yaw_rate="0.008" k_p_vz="0.002" k_d_vz="0.006" approach_area_threshold="0.025" forward_velocity="0.9" sprint_velocity="0.85" sprint_time="0.55" -->
-            <VisualServo 
-                pixel_target="{balloon_pixel}"
-                k_p_yaw_rate="0.004"
-                k_d_yaw_rate="0.001"
-                k_p_vz="0.01"
-                k_d_vz="0.006"
-                approach_area_threshold="0.025"
-                forward_velocity="0.9"
-                sprint_velocity="0.85"
-                sprint_time="0.55"
-                post_hit_brake_velocity="0.45"
-                post_hit_brake_time="0.45" data_timeout="1.0"
-                align_gate_ratio="0.18"
-                full_speed_align_ratio="0.08" />
-            <!-- VisualServo 参数说明:
-                 pixel_target:             黑板变量，TargetTracker 输出的气球像素坐标
-                 k_p_yaw_rate / k_d_yaw_rate: 偏航角 PD 控制增益（控制左右对准气球）
-                 k_p_vz / k_d_vz:          高度 PD 控制增益（控制上下对准气球）
-                 approach_area_threshold:   气球面积占画面比例阈值，超过则触发冲刺
-                 forward_velocity:          正常接近恒定前进速度 (m/s)
-                 sprint_velocity:           冲刺阶段前进速度 (m/s)
-                 sprint_time:               冲刺持续时间 (s)
-            -->
-          </Parallel>
-        </Timeout>
-      </ForceSuccess>
+      <!-- 主动扫描+跟踪，支持丢失后重试 -->
+      <RetryUntilSuccessful num_attempts="2">
+        <Sequence name="AcquireAndHit">
+          <!-- 主动旋转扫描，先把目标拉进视野 -->
+          <ScanForTarget object_name="purple_balloon" confidence_threshold="0.6" yaw_rate="0.35" timeout="12.0" center_gate_x_ratio="0.35" center_gate_y_ratio="0.45" stable_frames="1" detection_hold_time="0.3" phase_duration="2.5" lateral_velocity="0.18" backward_velocity="0.12" />
+
+          <!-- 跟踪并撞击气球 -->
+          <ForceSuccess>
+            <Timeout msec="50000">
+              <Parallel success_count="1" failure_count="1">
+
+                <!-- 持续跟踪：实时计算气球像素坐标 -->
+                <TargetTracker
+                    object_name="purple_balloon"
+                    confidence_threshold="0.6"
+                    pixel_target="{balloon_pixel}" lost_target_grace_time="0.15" />
+
+                <!-- 视觉伺服：VX+VZ+yaw_rate PD控制 -->
+                <VisualServo
+                    pixel_target="{balloon_pixel}"
+                    k_p_yaw_rate="0.006"
+                    k_d_yaw_rate="0.002"
+                    k_p_vz="0.015"
+                    k_d_vz="0.006"
+                    approach_area_threshold="0.035"
+                    forward_velocity="0.6"
+                    sprint_velocity="0.85"
+                    sprint_time="0.55"
+                    post_hit_brake_velocity="0.45"
+                    post_hit_brake_time="0.45"
+                    data_timeout="0.25"
+                    recovery_delay="0.1"
+                    recovery_backoff_velocity="-0.25"
+                    recovery_backoff_time="0.8"
+                    recovery_yaw_rate="0.5"
+                    recovery_total_timeout="3.0" />
+              </Parallel>
+            </Timeout>
+          </ForceSuccess>
+        </Sequence>
+      </RetryUntilSuccessful>
       <!-- 13. 规划返回起点 -->
       <GoTo goal="0.0;0.0;0.5" yaw="0.0"/>
       <!-- 14. 降落 -->

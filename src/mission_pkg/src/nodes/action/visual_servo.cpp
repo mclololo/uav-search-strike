@@ -36,7 +36,13 @@ PortsList VisualServo::providedPorts() {
              InputPort<double>("post_hit_brake_time", 0.45, "撞击后反向刹车时间 (s)"),
              InputPort<double>("data_timeout", 0.3, "数据超时 (s)"),
              InputPort<double>("approach_area_threshold", 0.06, "触发冲刺的面积占比"),
-             InputPort<double>("center_tolerance", 0.15, "对齐判定区域比例") };
+             InputPort<double>("center_tolerance", 0.15, "对齐判定区域比例"),
+             // 目标丢失后的主动恢复参数
+             InputPort<double>("recovery_delay", 0.15, "丢失多久后进入恢复 (s)"),
+             InputPort<double>("recovery_backoff_velocity", -0.25, "恢复阶段后退速度 (m/s, 负值)"),
+             InputPort<double>("recovery_backoff_time", 0.8, "恢复阶段后退持续时间 (s)"),
+             InputPort<double>("recovery_yaw_rate", 0.5, "恢复阶段扫描角速度 (rad/s)"),
+             InputPort<double>("recovery_total_timeout", 3.0, "恢复阶段总超时 (s)") };
 }
 
 NodeStatus VisualServo::onStart() {
@@ -60,6 +66,12 @@ NodeStatus VisualServo::onStart() {
     approach_area_threshold_ = getInput<double>("approach_area_threshold").value();
     center_tolerance_ = getInput<double>("center_tolerance").value();
 
+    recovery_delay_ = getInput<double>("recovery_delay").value();
+    recovery_backoff_velocity_ = getInput<double>("recovery_backoff_velocity").value();
+    recovery_backoff_time_ = getInput<double>("recovery_backoff_time").value();
+    recovery_yaw_rate_ = getInput<double>("recovery_yaw_rate").value();
+    recovery_total_timeout_ = getInput<double>("recovery_total_timeout").value();
+
     current_state_ = APPROACHING;
     has_ever_received_data_ = false;
     max_area_ratio_ = 0.0;
@@ -74,6 +86,9 @@ NodeStatus VisualServo::onStart() {
     ROS_INFO("[%s]: forward_vel=%.2f sprint_vel=%.2f sprint_time=%.2f brake=%.2fm/s %.2fs area_thresh=%.3f",
              name().c_str(), forward_velocity_, sprint_velocity_, sprint_time_,
              post_hit_brake_velocity_, post_hit_brake_time_, approach_area_threshold_);
+    ROS_INFO("[%s]: recovery delay=%.2fs backoff=%.2fm/s %.2fs yaw=%.2f timeout=%.2fs",
+             name().c_str(), recovery_delay_, recovery_backoff_velocity_, recovery_backoff_time_,
+             recovery_yaw_rate_, recovery_total_timeout_);
     publishDebugEvent("vs_start", "visual servo active");
 
     return NodeStatus::RUNNING;
@@ -97,9 +112,29 @@ NodeStatus VisualServo::onRunning() {
         return NodeStatus::SUCCESS;
     }
 
-    if (isTargetLost()) {
+    bool target_now_valid = !isTargetLost();
+
+    // 如果正在恢复中，优先处理恢复状态
+    if (current_state_ == RECOVERY) {
+        if (target_now_valid) {
+            current_state_ = ALIGN;
+            align_stable_frames_ = 0;
+            ROS_INFO("[%s]: Target reacquired during recovery, resuming tracking.", name().c_str());
+            publishDebugEvent("vs_state", "RECOVERY -> ALIGN (reacquired)");
+            // 继续下面的正常跟踪逻辑
+        } else {
+            return executeRecovery();
+        }
+    }
+
+    if (!target_now_valid) {
+        double age = targetAge();
+        if (age >= recovery_delay_) {
+            return startRecovery();
+        }
+        // 短暂丢失：立即刹车悬停，避免沿旧目标继续前飞撞墙
         publishVelocityWithYawRate(0, 0, 0, 0);
-        ROS_WARN_THROTTLE(1.0, "[%s]: Target lost, waiting...", name().c_str());
+        ROS_WARN_THROTTLE(1.0, "[%s]: Target lost, waiting... (age=%.2fs)", name().c_str(), age);
         publishDebugEvent("vs_wait", "target lost, waiting");
         return NodeStatus::RUNNING;
     }
@@ -161,6 +196,10 @@ NodeStatus VisualServo::onRunning() {
         }
 
         case BRAKING:
+            break;
+
+        case RECOVERY:
+            // 正常逻辑中不应到达这里（上面已处理），加上兜底
             break;
     }
 
@@ -231,6 +270,51 @@ NodeStatus VisualServo::startPostHitBrake(const std::string& reason) {
     brake_start_time_ = ros::Time::now();
     current_state_ = BRAKING;
     publishDebugEvent("vs_state", std::string("SPRINTING -> BRAKING | ") + reason);
+    return NodeStatus::RUNNING;
+}
+
+NodeStatus VisualServo::startRecovery() {
+    recovery_start_time_ = ros::Time::now();
+    current_state_ = RECOVERY;
+    align_stable_frames_ = 0;
+    ROS_WARN("[%s]: Target lost confirmed -> enter RECOVERY (backoff + scan)", name().c_str());
+    publishDebugEvent("vs_state", "TARGET LOST -> RECOVERY");
+    return NodeStatus::RUNNING;
+}
+
+NodeStatus VisualServo::executeRecovery() {
+    ros::Time now = ros::Time::now();
+    double elapsed = (now - recovery_start_time_).toSec();
+
+    if (elapsed >= recovery_total_timeout_) {
+        sendHoverCommand();
+        ROS_WARN("[%s]: Recovery timeout, target not reacquired. Aborting visual servo.", name().c_str());
+        publishDebugEvent("vs_recovery_timeout", "target not reacquired");
+        return NodeStatus::FAILURE;
+    }
+
+    double vx = 0.0;
+    double yaw_rate = 0.0;
+
+    if (elapsed < recovery_backoff_time_) {
+        // 阶段1：边后退边左右扫视，尽快脱离前方墙壁/障碍物
+        vx = recovery_backoff_velocity_;
+        if (elapsed < recovery_backoff_time_ / 2.0) {
+            yaw_rate = recovery_yaw_rate_;
+        } else {
+            yaw_rate = -recovery_yaw_rate_;
+        }
+    } else {
+        // 阶段2：原地往复旋转扫描，尝试重新捕获目标
+        constexpr double scan_period = 1.2;
+        double phase = std::fmod(elapsed - recovery_backoff_time_, 2.0 * scan_period);
+        yaw_rate = (phase < scan_period) ? recovery_yaw_rate_ : -recovery_yaw_rate_;
+    }
+
+    publishVelocityWithYawRate(vx, 0.0, 0.0, yaw_rate);
+    ROS_INFO_THROTTLE(0.5, "[%s]: RECOVERY elapsed=%.2f/%.2f vx=%.2f yaw_rate=%.2f",
+                      name().c_str(), elapsed, recovery_total_timeout_, vx, yaw_rate);
+    publishDebugEvent("vs_recovery", "elapsed=" + std::to_string(elapsed));
     return NodeStatus::RUNNING;
 }
 

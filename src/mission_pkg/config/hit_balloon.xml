@@ -10,33 +10,47 @@
       <GoTo goal="0.0;-0.9;1.0" yaw="-1.570796" yaw_tolerance="0.05" yaw_rate="0.5"/>
       
       <!-- 3. 实时跟踪气球并视觉伺服撞击 -->
-      <!-- 主动旋转扫描，先把目标拉进视野 -->
-      <ScanForTarget object_name="red_balloon" confidence_threshold="0.6" yaw_rate="0.35" timeout="8.0" center_gate_x_ratio="0.22" center_gate_y_ratio="0.35" stable_frames="3" detection_hold_time="0.6" phase_duration="2.5" lateral_velocity="0.18" backward_velocity="0.12" />
-      
-      <Parallel success_count="1" failure_count="1">
-        
-        <!-- 持续跟踪：实时计算气球像素坐标 -->
-        <TargetTracker 
-            object_name="red_balloon"
-            confidence_threshold="0.6"
-            pixel_target="{balloon_pixel}" lost_target_grace_time="0.8" />
-        
-        <!-- 视觉伺服：VX+VZ+yaw_rate PD控制 -->
-        <VisualServo 
-            pixel_target="{balloon_pixel}"
-            k_p_yaw_rate="0.004"
-            k_d_yaw_rate="0.008"
-            k_p_vz="0.002"
-            k_d_vz="0.006"
-            approach_area_threshold="0.025"
-            forward_velocity="0.9"
-            sprint_velocity="0.85"
-            sprint_time="0.55"
-                post_hit_brake_velocity="0.45"
-                post_hit_brake_time="0.45"
-                align_gate_ratio="0.18"
-                full_speed_align_ratio="0.08" />
-      </Parallel>
+      <!-- 主动扫描+跟踪，支持丢失后重试 -->
+      <RetryUntilSuccessful num_attempts="2">
+        <Sequence name="AcquireAndHit">
+          <!-- 主动旋转扫描，先把目标拉进视野 -->
+          <ScanForTarget object_name="red_balloon" confidence_threshold="0.6" yaw_rate="0.35" timeout="8.0" center_gate_x_ratio="0.22" center_gate_y_ratio="0.35" stable_frames="3" detection_hold_time="0.6" phase_duration="2.5" lateral_velocity="0.18" backward_velocity="0.12" />
+
+          <!-- 跟踪并撞击气球 -->
+          <ForceSuccess>
+            <Timeout msec="50000">
+              <Parallel success_count="1" failure_count="1">
+
+                <!-- 持续跟踪：实时计算气球像素坐标 -->
+                <TargetTracker
+                    object_name="red_balloon"
+                    confidence_threshold="0.6"
+                    pixel_target="{balloon_pixel}" lost_target_grace_time="0.15" />
+
+                <!-- 视觉伺服：VX+VZ+yaw_rate PD控制 -->
+                <VisualServo
+                    pixel_target="{balloon_pixel}"
+                    k_p_yaw_rate="0.006"
+                    k_d_yaw_rate="0.002"
+                    k_p_vz="0.015"
+                    k_d_vz="0.006"
+                    approach_area_threshold="0.035"
+                    forward_velocity="0.6"
+                    sprint_velocity="0.85"
+                    sprint_time="0.55"
+                    post_hit_brake_velocity="0.45"
+                    post_hit_brake_time="0.45"
+                    data_timeout="0.25"
+                    recovery_delay="0.1"
+                    recovery_backoff_velocity="-0.25"
+                    recovery_backoff_time="0.8"
+                    recovery_yaw_rate="0.5"
+                    recovery_total_timeout="3.0" />
+              </Parallel>
+            </Timeout>
+          </ForceSuccess>
+        </Sequence>
+      </RetryUntilSuccessful>
       
       <!-- 4. 规划返回起点 -->
       <GoTo goal="0.0;0.0;1.0" tolerance="0.2" />

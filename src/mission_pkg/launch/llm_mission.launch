@@ -96,19 +96,25 @@
     <!-- ============================================ -->
     <!-- VisualServo 视觉伺服参数（与手调 XML 一致）     -->
     <!-- ============================================ -->
-    <param name="visual_servo/k_p_yaw_rate"            value="0.004" type="double"/>
-    <param name="visual_servo/k_d_yaw_rate"            value="0.001" type="double"/>
-    <param name="visual_servo/k_p_vz"                  value="0.01"  type="double"/>
+    <param name="visual_servo/k_p_yaw_rate"            value="0.006" type="double"/>
+    <param name="visual_servo/k_d_yaw_rate"            value="0.002" type="double"/>
+    <param name="visual_servo/k_p_vz"                  value="0.015" type="double"/>
     <param name="visual_servo/k_d_vz"                  value="0.006" type="double"/>
-    <param name="visual_servo/approach_area_threshold"  value="0.025"  type="double"/>
-    <param name="visual_servo/forward_velocity"         value="0.9"   type="double"/>
+    <param name="visual_servo/approach_area_threshold"  value="0.035"  type="double"/>
+    <param name="visual_servo/forward_velocity"         value="0.6"   type="double"/>
     <param name="visual_servo/sprint_velocity"          value="0.85"   type="double"/>
     <param name="visual_servo/sprint_time"              value="0.55"  type="double"/>
     <param name="visual_servo/post_hit_brake_velocity"  value="0.45"  type="double"/>
     <param name="visual_servo/post_hit_brake_time"      value="0.45"  type="double"/>
-    <param name="visual_servo/data_timeout"              value="1.0"   type="double"/>
+    <param name="visual_servo/data_timeout"              value="0.25"   type="double"/>
+    <!-- 目标丢失后的主动恢复参数 -->
+    <param name="visual_servo/recovery_delay"            value="0.1"   type="double"/>
+    <param name="visual_servo/recovery_backoff_velocity" value="-0.25" type="double"/>
+    <param name="visual_servo/recovery_backoff_time"     value="0.8"   type="double"/>
+    <param name="visual_servo/recovery_yaw_rate"         value="0.5"   type="double"/>
+    <param name="visual_servo/recovery_total_timeout"    value="3.0"   type="double"/>
     <param name="balloon_detection/confidence_threshold" value="0.60" type="double"/>
-    <param name="target_tracker/lost_target_grace_time" value="0.8" type="double"/>
+    <param name="target_tracker/lost_target_grace_time" value="0.15" type="double"/>
 
     <!-- ============================================ -->
     <!-- 打击前主动扫描参数                            -->
@@ -122,6 +128,7 @@
     <param name="balloon_scan/phase_duration"       value="2.5"  type="double"/>
     <param name="balloon_scan/lateral_velocity"     value="0.18" type="double"/>
     <param name="balloon_scan/backward_velocity"    value="0.12" type="double"/>
+    <param name="balloon_scan/retry_attempts"       value="2"    type="int"/>
 
 
     <!-- 运行任务节点（LLM 模式） -->
