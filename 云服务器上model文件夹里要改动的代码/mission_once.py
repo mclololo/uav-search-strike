@@ -140,11 +140,17 @@ class MissionGenerator:
 
         self.latest_image = None
 
-        self.image_sub = rospy.Subscriber(
+        self.use_image_context = os.environ.get("MISSION_USE_IMAGE_CONTEXT", "0") == "1"
 
-            '/rflysim/sensor1/image_rgb', Image, self.image_callback, queue_size=1
+        self.image_sub = None
 
-        )
+        if self.use_image_context:
+
+            self.image_sub = rospy.Subscriber(
+
+                '/rflysim/sensor1/img_rgb', Image, self.image_callback, queue_size=1
+
+            )
 
 
 
@@ -180,7 +186,7 @@ class MissionGenerator:
 
         content = []
 
-        if self.latest_image is not None:
+        if self.use_image_context and self.latest_image is not None:
 
             content.append(self.latest_image)
 
@@ -236,11 +242,150 @@ class MissionGenerator:
 
 
 
+def infer_commands_from_text(task_description: str):
+
+    """根据用户原文做确定性解析，用来校正大模型漏项。"""
+
+    text = task_description.lower().replace(" ", "")
+
+    def has_any(words):
+
+        return any(w in text for w in words)
+
+    def has_negative_action(words):
+
+        neg_words = ("不用", "不要", "无需", "不必", "不需要", "不")
+
+        for word in words:
+
+            idx = text.find(word)
+
+            if idx < 0:
+
+                continue
+
+            window = text[max(0, idx - 4):idx]
+
+            if any(neg in window for neg in neg_words):
+
+                return True
+
+        return False
+
+    commands = []
+
+    if has_any(("起飞", "升空", "takeoff")) and not has_negative_action(("起飞", "升空", "takeoff")):
+
+        commands.append("takeoff")
+
+    if has_any(("穿框", "穿过框", "过框", "穿越框", "框")) and not has_negative_action(("穿框", "穿过框", "过框", "穿越框", "框")):
+
+        commands.append("cross_frame")
+
+    if has_any(("二维码", "识别二维码", "扫二维码", "qr", "aruco")) and not has_negative_action(("二维码", "qr", "aruco")):
+
+        commands.append("detect_aruco")
+
+    if has_any(("反向穿框", "再穿框", "穿回来", "穿回框", "返回穿框", "再穿回来")) and not has_negative_action(("反向穿框", "再穿框", "穿回来", "穿回框", "返回穿框", "再穿回来")):
+
+        commands.append("return_cross_frame")
+
+    balloon_words = ("气球", "打气球", "打击", "刺", "扎", "击")
+
+    if has_any(balloon_words) and not has_negative_action(balloon_words):
+
+        if has_any(("蓝色", "蓝球", "blue")):
+
+            color = "blue"
+
+        elif has_any(("紫色", "紫球", "purple")):
+
+            color = "purple"
+
+        else:
+
+            color = "red"
+
+        commands.append(f"hit_balloon:{color}")
+
+    if has_any(("降落", "land", "回到起点", "返回起点", "回原点", "返回原点", "返回")) and not has_negative_action(("降落", "land")):
+
+        commands.append("land")
+
+    return commands
+
+
+def normalize_commands(task_description: str, model_commands: str):
+
+    """优先使用用户原文推导出的完整序列，防止模型只输出部分动作。"""
+
+    inferred = infer_commands_from_text(task_description)
+
+    model_lines = []
+
+    if model_commands:
+
+        for line in model_commands.splitlines():
+
+            cmd = line.strip()
+
+            if cmd and not cmd.startswith("#"):
+
+                model_lines.append(cmd)
+
+    if not inferred:
+
+        return "\n".join(model_lines)
+
+    if model_lines != inferred:
+
+        print("\n[校正] 模型输出与用户原文不一致，已按用户原文修正指令序列。", flush=True)
+
+    return "\n".join(inferred)
+
+
+def publish_mission_command(pub, commands: str, timeout: float = 10.0) -> bool:
+
+    """可靠发送任务指令，等待 mission 节点订阅后重复发布，避免一次性消息丢失。"""
+
+    deadline = rospy.Time.now() + rospy.Duration(timeout)
+
+    while pub.get_num_connections() == 0 and not rospy.is_shutdown() and rospy.Time.now() < deadline:
+
+        rospy.logwarn_throttle(2.0, "等待 /llm_mission_node 订阅 /mission_command ...")
+
+        rospy.sleep(0.1)
+
+
+
+    if pub.get_num_connections() == 0:
+
+        rospy.logerr("/mission_command 当前没有订阅者，指令未发送。请确认 roslaunch mission_pkg llm_mission.launch 已启动。")
+
+        return False
+
+
+
+    msg = String(data=commands)
+
+    for _ in range(5):
+
+        pub.publish(msg)
+
+        rospy.sleep(0.2)
+
+
+
+    rospy.loginfo("指令已发送到 /mission_command")
+
+    return True
+
+
 def main():
 
     rospy.init_node("mission_once", anonymous=True)
 
-    pub = rospy.Publisher("/mission_command", String, queue_size=10)
+    pub = rospy.Publisher("/mission_command", String, queue_size=10, latch=True)
 
     rospy.sleep(1.0)
 
@@ -268,11 +413,11 @@ def main():
 
             if commands:
 
+                commands = normalize_commands(task, commands)
+
                 print(f"\n[生成的指令序列]\n{commands}\n")
 
-                pub.publish(String(data=commands))
-
-                rospy.loginfo("指令已发送到 /mission_command")
+                publish_mission_command(pub, commands)
 
             else:
 
@@ -340,11 +485,11 @@ def main():
 
 
 
+        commands = normalize_commands(task, commands)
+
         print(f"\n[生成的指令序列]\n{commands}\n")
 
-        pub.publish(String(data=commands))
-
-        rospy.loginfo("指令已发送到 /mission_command")
+        publish_mission_command(pub, commands)
 
 
 

@@ -104,8 +104,8 @@
     <param name="visual_servo/forward_velocity"         value="0.6"   type="double"/>
     <param name="visual_servo/sprint_velocity"          value="0.85"   type="double"/>
     <param name="visual_servo/sprint_time"              value="0.55"  type="double"/>
-    <param name="visual_servo/post_hit_brake_velocity"  value="0.45"  type="double"/>
-    <param name="visual_servo/post_hit_brake_time"      value="0.45"  type="double"/>
+    <param name="visual_servo/post_hit_brake_velocity"  value="0.0"  type="double"/>
+    <param name="visual_servo/post_hit_brake_time"      value="0.0"  type="double"/>
     <param name="visual_servo/data_timeout"              value="0.25"   type="double"/>
     <!-- 目标丢失后的主动恢复参数 -->
     <param name="visual_servo/recovery_delay"            value="0.1"   type="double"/>
