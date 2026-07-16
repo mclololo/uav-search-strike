@@ -24,6 +24,7 @@ private:
         APPROACHING,
         SPRINTING,
         BRAKING,
+        SETTLING,
         RECOVERY
     };
 
@@ -34,6 +35,7 @@ private:
     double max_area_ratio_;
     ros::Time sprint_start_time_;
     ros::Time brake_start_time_;
+    ros::Time settle_start_time_;
     int align_stable_frames_;
 
     double img_cx_, img_cy_;
@@ -54,6 +56,7 @@ private:
     double sprint_time_;
     double post_hit_brake_velocity_;
     double post_hit_brake_time_;
+    double post_hit_settle_time_;
 
     double data_timeout_;
     double approach_area_threshold_;

@@ -318,6 +318,7 @@ std::string commandToXmlNode(const std::string& command) {
         std::string param_prefix = "balloon_zone_" + zone;
         std::string approach_pos = getStr(param_prefix + "/approach_pos", "5.3;1.0;0.7");
         std::string goto_pos = getStr(param_prefix + "/goal", "0.0;-0.8;0.5");
+        std::string post_hit_climb_pos = getStr(param_prefix + "/post_hit_climb_pos", approach_pos);
         double yaw_val = getDbl(param_prefix + "/yaw", -1.570796);
         std::string yaw = std::to_string(yaw_val);
         std::string balloon_name = color + "_balloon";
@@ -337,8 +338,9 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_fwd_vel  = std::to_string(getDbl("visual_servo/forward_velocity", 0.9));
         std::string vs_sprint_v = std::to_string(getDbl("visual_servo/sprint_velocity", 0.85));
         std::string vs_sprint_t = std::to_string(getDbl("visual_servo/sprint_time", 0.55));
-        std::string vs_brake_v  = std::to_string(getDbl("visual_servo/post_hit_brake_velocity", 0.0));
-        std::string vs_brake_t  = std::to_string(getDbl("visual_servo/post_hit_brake_time", 0.0));
+        std::string vs_brake_v  = std::to_string(getDbl("visual_servo/post_hit_brake_velocity", 0.35));
+        std::string vs_brake_t  = std::to_string(getDbl("visual_servo/post_hit_brake_time", 0.35));
+        std::string vs_settle_t = std::to_string(getDbl("visual_servo/post_hit_settle_time", 0.45));
         std::string vs_data_timeout = std::to_string(getDbl("visual_servo/data_timeout", 1.0));
         std::string tracker_grace_time = std::to_string(getDbl("target_tracker/lost_target_grace_time", 0.8));
         std::string scan_phase_duration = std::to_string(getDbl("balloon_scan/phase_duration", 2.5));
@@ -391,14 +393,20 @@ std::string commandToXmlNode(const std::string& command) {
             "            </Timeout>\n"
             "          </ForceSuccess>\n"
             "        </Sequence>\n"
-            "      </RetryUntilSuccessful>\n";
+            "      </RetryUntilSuccessful>\n"
+            "      <!-- 撞击后先上升脱离气球区域 -->\n"
+            "      <GoTo goal=\"" + post_hit_climb_pos + "\" yaw=\"" + yaw + "\"/>\n";
     }
     
     // ---- land ----
     if (cmd == "land") {
+        std::string return_high_pos = getStr("land/return_high_pos", "0.0;0.0;1.2");
+        std::string return_low_pos = getStr("land/return_low_pos", "0.0;0.0;0.5");
         double ret_yaw = getDbl("land/return_yaw", 0.0);
         return
-            "      <GoTo goal=\"0.0;0.0;0.5\" yaw=\"" + std::to_string(ret_yaw) + "\"/>\n"
+            "      <!-- 规划返航到起点上方，避免撞球后低空直线返回 -->\n"
+            "      <PlanningControl goal=\"" + return_high_pos + "\"/>\n"
+            "      <GoTo goal=\"" + return_low_pos + "\" yaw=\"" + std::to_string(ret_yaw) + "\"/>\n"
             "      <Land/>\n";
     }
 
