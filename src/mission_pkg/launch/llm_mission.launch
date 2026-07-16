@@ -56,7 +56,7 @@
     <!-- 返回穿越方框 -->
     <param name="return_cross_frame/turn_pos"     value="4.5;0.5;1.8"   type="str"/>    <!-- 转向位置 -->
     <param name="return_cross_frame/turn_yaw"     value="3.14159"        type="double"/> <!-- 转向航向(rad) -->
-    <param name="return_cross_frame/body_forward"  value="0.5;0.0;0.0"   type="str"/>    <!-- 机体系前进距离 -->
+    <param name="return_cross_frame/body_forward"  value="0.2;0.0;0.0"   type="str"/>    <!-- 机体系前进距离 -->
     <param name="return_cross_frame/offset_z"      value="1.0"           type="double"/> <!-- 反向穿框偏移 -->
 
     <!-- 降落 -->
