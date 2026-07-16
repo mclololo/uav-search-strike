@@ -127,7 +127,77 @@ def load_model():
     return model, tokenizer, knowledge_prompt
 
 
+def infer_commands_from_text(task_description: str):
 
+    """根据用户原文做确定性解析，用来校正大模型漏项。"""
+
+    text = task_description.lower().replace(" ", "")
+
+    def has_any(words):
+
+        return any(w in text for w in words)
+
+    def has_negative_action(words):
+
+        neg_words = ("不用", "不要", "无需", "不必", "不需要", "不")
+
+        for word in words:
+
+            idx = text.find(word)
+
+            if idx < 0:
+
+                continue
+
+            window = text[max(0, idx - 4):idx]
+
+            if any(neg in window for neg in neg_words):
+
+                return True
+
+        return False
+
+    commands = []
+
+    if has_any(("起飞", "升空", "takeoff")) and not has_negative_action(("起飞", "升空", "takeoff")):
+
+        commands.append("takeoff")
+
+    if has_any(("穿框", "穿过框", "过框", "穿越框", "框")) and not has_negative_action(("穿框", "穿过框", "过框", "穿越框", "框")):
+
+        commands.append("cross_frame")
+
+    if has_any(("二维码", "识别二维码", "扫二维码", "qr", "aruco")) and not has_negative_action(("二维码", "qr", "aruco")):
+
+        commands.append("detect_aruco")
+
+    if has_any(("反向穿框", "再穿框", "穿回来", "穿回框", "返回穿框", "再穿回来")) and not has_negative_action(("反向穿框", "再穿框", "穿回来", "穿回框", "返回穿框", "再穿回来")):
+
+        commands.append("return_cross_frame")
+
+    balloon_words = ("气球", "打气球", "打击", "刺", "扎", "击")
+
+    if has_any(balloon_words) and not has_negative_action(balloon_words):
+
+        if has_any(("蓝色", "蓝球", "blue")):
+
+            color = "blue"
+
+        elif has_any(("紫色", "紫球", "purple")):
+
+            color = "purple"
+
+        else:
+
+            color = "red"
+
+        commands.append(f"hit_balloon:{color}")
+
+    if has_any(("降落", "land", "回到起点", "返回起点", "回原点", "返回原点", "返回")) and not has_negative_action(("降落", "land")):
+
+        commands.append("land")
+
+    return commands
 
 
 class MissionGenerator:
@@ -320,82 +390,6 @@ class MissionGenerator:
             code = code[len("command"):].strip()
 
         return code.strip(), image_for_this_query is not None
-
-
-
-
-
-def infer_commands_from_text(task_description: str):
-
-    """根据用户原文做确定性解析，用来校正大模型漏项。"""
-
-    text = task_description.lower().replace(" ", "")
-
-    def has_any(words):
-
-        return any(w in text for w in words)
-
-    def has_negative_action(words):
-
-        neg_words = ("不用", "不要", "无需", "不必", "不需要", "不")
-
-        for word in words:
-
-            idx = text.find(word)
-
-            if idx < 0:
-
-                continue
-
-            window = text[max(0, idx - 4):idx]
-
-            if any(neg in window for neg in neg_words):
-
-                return True
-
-        return False
-
-    commands = []
-
-    if has_any(("起飞", "升空", "takeoff")) and not has_negative_action(("起飞", "升空", "takeoff")):
-
-        commands.append("takeoff")
-
-    if has_any(("穿框", "穿过框", "过框", "穿越框", "框")) and not has_negative_action(("穿框", "穿过框", "过框", "穿越框", "框")):
-
-        commands.append("cross_frame")
-
-    if has_any(("二维码", "识别二维码", "扫二维码", "qr", "aruco")) and not has_negative_action(("二维码", "qr", "aruco")):
-
-        commands.append("detect_aruco")
-
-    if has_any(("反向穿框", "再穿框", "穿回来", "穿回框", "返回穿框", "再穿回来")) and not has_negative_action(("反向穿框", "再穿框", "穿回来", "穿回框", "返回穿框", "再穿回来")):
-
-        commands.append("return_cross_frame")
-
-    balloon_words = ("气球", "打气球", "打击", "刺", "扎", "击")
-
-    if has_any(balloon_words) and not has_negative_action(balloon_words):
-
-        if has_any(("蓝色", "蓝球", "blue")):
-
-            color = "blue"
-
-        elif has_any(("紫色", "紫球", "purple")):
-
-            color = "purple"
-
-        else:
-
-            color = "red"
-
-        commands.append(f"hit_balloon:{color}")
-
-    if has_any(("降落", "land", "回到起点", "返回起点", "回原点", "返回原点", "返回")) and not has_negative_action(("降落", "land")):
-
-        commands.append("land")
-
-    return commands
 
 
     def _has_explicit_color(self, task_description: str) -> bool:
