@@ -22,6 +22,8 @@ import re
 
 import gc
 
+import time
+
 import numpy as np
 
 from PIL import Image as PILImage
@@ -140,7 +142,27 @@ class MissionGenerator:
 
         self.latest_image = None
 
-        self.use_image_context = os.environ.get("MISSION_USE_IMAGE_CONTEXT", "0") == "1"
+        self.last_image_time = 0.0
+
+        # 默认启用图像上下文（比赛加分项），可通过环境变量关闭
+
+        self.use_image_context = os.environ.get("MISSION_USE_IMAGE_CONTEXT", "1") == "1"
+
+        # 是否强制每次推理都传图（默认只在视觉相关指令传图，以平衡速度）
+
+        self.always_image = os.environ.get("MISSION_ALWAYS_IMAGE", "0") == "1"
+
+        # 图像尺寸：FM9G4B-V 视觉编码器通常接受 224x224
+
+        self.image_size = int(os.environ.get("MISSION_IMAGE_SIZE", "224"))
+
+        # 图像回调最小间隔（秒），避免每帧都转换浪费 CPU
+
+        self.image_min_interval = float(os.environ.get("MISSION_IMAGE_MIN_INTERVAL", "0.3"))
+
+        # 等待图像到达的最大时间（秒）
+
+        self.image_timeout = float(os.environ.get("MISSION_IMAGE_TIMEOUT", "2.0"))
 
         self.image_sub = None
 
@@ -152,25 +174,86 @@ class MissionGenerator:
 
             )
 
+            rospy.loginfo("[mission_once] 图像上下文已启用，订阅 /rflysim/sensor1/img_rgb")
+
+        else:
+
+            rospy.loginfo("[mission_once] 图像上下文已禁用（纯文本模式）")
+
 
 
     def image_callback(self, msg: Image):
+
+        # 帧率节流：避免每帧都转换浪费 CPU
+
+        now = time.time()
+
+        if now - self.last_image_time < self.image_min_interval:
+
+            return
+
+        self.last_image_time = now
+
+
 
         try:
 
             pil_img = ros_image_to_pil(msg)
 
-            self.latest_image = pil_img.resize((224, 224), PILImage.BILINEAR)
+            self.latest_image = pil_img.resize((self.image_size, self.image_size), PILImage.BILINEAR)
 
         except Exception as e:
 
             rospy.logerr_throttle(5.0, f"[mission_once] Image conversion failed: {e}")
+
+            self.latest_image = None
 
 
 
     def generate_commands(self, task_description: str):
 
         """向大模型发送任务描述，可附带当前图像，提取指令列表"""
+
+        # 如果启用图像上下文，等待图像到达
+
+        image_for_this_query = None
+
+        if self.use_image_context:
+
+            deadline = rospy.Time.now() + rospy.Duration(self.image_timeout)
+
+            while (self.latest_image is None and not rospy.is_shutdown()
+                   and rospy.Time.now() < deadline):
+
+                rospy.logwarn_throttle(1.0, "[mission_once] 等待前视相机图像...")
+
+                rospy.sleep(0.1)
+
+
+
+            if self.latest_image is None:
+
+                rospy.logwarn("[mission_once] 未收到图像，本次推理退化为纯文本模式")
+
+            else:
+
+                # 只在视觉相关指令或强制模式下传图
+
+                visual_keywords = ("气球", "颜色", "框", "二维码", "识别", "目标", "画面", "图像",
+
+                                   "blue", "red", "purple")
+
+                if self.always_image or any(k in task_description for k in visual_keywords):
+
+                    image_for_this_query = self.latest_image
+
+                    rospy.loginfo("[mission_once] 本次推理附带图像上下文")
+
+                else:
+
+                    rospy.loginfo("[mission_once] 本次推理为非视觉指令，跳过图像以加速")
+
+
 
         full_prompt = (
 
@@ -186,9 +269,9 @@ class MissionGenerator:
 
         content = []
 
-        if self.use_image_context and self.latest_image is not None:
+        if image_for_this_query is not None:
 
-            content.append(self.latest_image)
+            content.append(image_for_this_query)
 
         content.append(full_prompt)
 
@@ -228,7 +311,7 @@ class MissionGenerator:
 
         if not match:
 
-            return None
+            return None, image_for_this_query is not None
 
         code = match.group(1)
 
@@ -236,7 +319,7 @@ class MissionGenerator:
 
             code = code[len("command"):].strip()
 
-        return code.strip()
+        return code.strip(), image_for_this_query is not None
 
 
 
@@ -315,33 +398,119 @@ def infer_commands_from_text(task_description: str):
     return commands
 
 
-def normalize_commands(task_description: str, model_commands: str):
+    def _has_explicit_color(self, task_description: str) -> bool:
 
-    """优先使用用户原文推导出的完整序列，防止模型只输出部分动作。"""
+        """判断用户文字中是否明确指定了气球颜色"""
 
-    inferred = infer_commands_from_text(task_description)
+        text = task_description.lower().replace(" ", "")
 
-    model_lines = []
+        color_words = ("红色", "红球", "红", "red",
 
-    if model_commands:
+                       "蓝色", "蓝球", "蓝", "blue",
 
-        for line in model_commands.splitlines():
+                       "紫色", "紫球", "紫", "purple")
 
-            cmd = line.strip()
+        return any(w in text for w in color_words)
 
-            if cmd and not cmd.startswith("#"):
 
-                model_lines.append(cmd)
 
-    if not inferred:
+    def _extract_color(self, cmd: str) -> str:
 
-        return "\n".join(model_lines)
+        """从 hit_balloon:color 中提取颜色，无效则返回空字符串"""
 
-    if model_lines != inferred:
+        if cmd.startswith("hit_balloon:"):
 
-        print("\n[校正] 模型输出与用户原文不一致，已按用户原文修正指令序列。", flush=True)
+            color = cmd.split(":", 1)[1].strip()
 
-    return "\n".join(inferred)
+            if color in ("red", "blue", "purple"):
+
+                return color
+
+        return ""
+
+
+
+    def normalize_commands(self, task_description: str, model_commands: str, image_used: bool):
+
+        """合并模型输出与用户原文推导结果，保护图像选择的颜色不被强制覆盖"""
+
+        inferred = infer_commands_from_text(task_description)
+
+        model_lines = []
+
+        if model_commands:
+
+            for line in model_commands.splitlines():
+
+                cmd = line.strip()
+
+                if cmd and not cmd.startswith("#"):
+
+                    model_lines.append(cmd)
+
+
+
+        if not inferred:
+
+            return "\n".join(model_lines)
+
+        if not model_lines:
+
+            return "\n".join(inferred)
+
+
+
+        user_explicit_color = self._has_explicit_color(task_description)
+
+        resolved = []
+
+        # 以 inferred 的序列结构为基础（保证只输出用户提到的动作）
+
+        for inf_cmd in inferred:
+
+            if inf_cmd.startswith("hit_balloon:"):
+
+                if user_explicit_color or not image_used or not self.use_image_context:
+
+                    # 用户明确指定了颜色，或没使用图像：以文字推断为准
+
+                    resolved.append(inf_cmd)
+
+                else:
+
+                    # 用户未指定颜色且使用了图像：尝试信任模型颜色
+
+                    # 在 model_lines 中找到对应 hit_balloon 命令
+
+                    model_color = ""
+
+                    for m_cmd in model_lines:
+
+                        if m_cmd.startswith("hit_balloon:"):
+
+                            model_color = self._extract_color(m_cmd)
+
+                            break
+
+                    if model_color:
+
+                        resolved.append(f"hit_balloon:{model_color}")
+
+                    else:
+
+                        resolved.append(inf_cmd)
+
+            else:
+
+                resolved.append(inf_cmd)
+
+
+
+        if resolved != model_lines:
+
+            print("\n[校正] 模型输出已按用户原文与视觉上下文校正。", flush=True)
+
+        return "\n".join(resolved)
 
 
 def publish_mission_command(pub, commands: str, timeout: float = 10.0) -> bool:
@@ -409,11 +578,11 @@ def main():
 
         try:
 
-            commands = generator.generate_commands(task)
+            commands, image_used = generator.generate_commands(task)
 
             if commands:
 
-                commands = normalize_commands(task, commands)
+                commands = generator.normalize_commands(task, commands, image_used)
 
                 print(f"\n[生成的指令序列]\n{commands}\n")
 
@@ -467,7 +636,7 @@ def main():
 
         try:
 
-            commands = generator.generate_commands(task)
+            commands, image_used = generator.generate_commands(task)
 
         except RuntimeError as e:
 
@@ -485,7 +654,7 @@ def main():
 
 
 
-        commands = normalize_commands(task, commands)
+        commands = generator.normalize_commands(task, commands, image_used)
 
         print(f"\n[生成的指令序列]\n{commands}\n")
 
