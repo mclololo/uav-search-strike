@@ -32,8 +32,9 @@ PortsList VisualServo::providedPorts() {
              InputPort<double>("forward_velocity", 0.9, "逼近阶段前进速度 (m/s)"),
              InputPort<double>("sprint_velocity", 0.85, "冲刺速度 (m/s)"),
              InputPort<double>("sprint_time", 0.55, "冲刺持续时间 (s)"),
-             InputPort<double>("post_hit_brake_velocity", 0.45, "撞击后反向刹车速度 (m/s)"),
-             InputPort<double>("post_hit_brake_time", 0.45, "撞击后反向刹车时间 (s)"),
+             InputPort<double>("post_hit_brake_velocity", 0.35, "撞击后反向刹车速度 (m/s)"),
+             InputPort<double>("post_hit_brake_time", 0.35, "撞击后反向刹车时间 (s)"),
+             InputPort<double>("post_hit_settle_time", 0.45, "撞击后悬停稳定时间 (s)"),
              InputPort<double>("data_timeout", 0.3, "数据超时 (s)"),
              InputPort<double>("approach_area_threshold", 0.06, "触发冲刺的面积占比"),
              InputPort<double>("center_tolerance", 0.15, "对齐判定区域比例"),
@@ -61,6 +62,7 @@ NodeStatus VisualServo::onStart() {
     sprint_time_ = getInput<double>("sprint_time").value();
     post_hit_brake_velocity_ = getInput<double>("post_hit_brake_velocity").value();
     post_hit_brake_time_ = getInput<double>("post_hit_brake_time").value();
+    post_hit_settle_time_ = getInput<double>("post_hit_settle_time").value();
 
     data_timeout_ = getInput<double>("data_timeout").value();
     approach_area_threshold_ = getInput<double>("approach_area_threshold").value();
@@ -83,9 +85,9 @@ NodeStatus VisualServo::onStart() {
     updateTargetData();
 
     ROS_INFO("[%s]: Visual Servo Started (VX+VZ+yaw_rate)", name().c_str());
-    ROS_INFO("[%s]: forward_vel=%.2f sprint_vel=%.2f sprint_time=%.2f brake=%.2fm/s %.2fs area_thresh=%.3f",
+    ROS_INFO("[%s]: forward_vel=%.2f sprint_vel=%.2f sprint_time=%.2f brake=%.2fm/s %.2fs settle=%.2fs area_thresh=%.3f",
              name().c_str(), forward_velocity_, sprint_velocity_, sprint_time_,
-             post_hit_brake_velocity_, post_hit_brake_time_, approach_area_threshold_);
+             post_hit_brake_velocity_, post_hit_brake_time_, post_hit_settle_time_, approach_area_threshold_);
     ROS_INFO("[%s]: recovery delay=%.2fs backoff=%.2fm/s %.2fs yaw=%.2f timeout=%.2fs",
              name().c_str(), recovery_delay_, recovery_backoff_velocity_, recovery_backoff_time_,
              recovery_yaw_rate_, recovery_total_timeout_);
@@ -107,9 +109,21 @@ NodeStatus VisualServo::onRunning() {
             publishVelocityWithYawRate(-post_hit_brake_velocity_, 0, 0, 0);
             return NodeStatus::RUNNING;
         }
+        current_state_ = SETTLING;
+        settle_start_time_ = ros::Time::now();
         sendHoverCommand();
-        publishDebugEvent("vs_success", "visual servo completed");
-        return NodeStatus::SUCCESS;
+        publishDebugEvent("vs_state", "BRAKING -> SETTLING");
+        return NodeStatus::RUNNING;
+    }
+
+    if (current_state_ == SETTLING) {
+        sendHoverCommand();
+        double settle_dt = (ros::Time::now() - settle_start_time_).toSec();
+        if (settle_dt >= post_hit_settle_time_) {
+            publishDebugEvent("vs_success", "visual servo completed after post-hit settle");
+            return NodeStatus::SUCCESS;
+        }
+        return NodeStatus::RUNNING;
     }
 
     bool target_now_valid = !isTargetLost();
@@ -196,6 +210,7 @@ NodeStatus VisualServo::onRunning() {
         }
 
         case BRAKING:
+        case SETTLING:
             break;
 
         case RECOVERY:

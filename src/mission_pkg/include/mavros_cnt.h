@@ -60,6 +60,7 @@ public:
 
   // 更新控制目标 (由行为树节点调用)
   void updateCommand(const mavros_msgs::PositionTarget &cmd);
+  void stopCommandPublishing();
 
 
 
