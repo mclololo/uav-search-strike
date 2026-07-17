@@ -91,6 +91,8 @@ class RobustQrArucoNode:
                                     rospy.get_param("~buffer_size", 8))
         self.qr_fallback      = rospy.get_param("~qr_fallback", True)
         self.use_clahe        = rospy.get_param("~use_clahe", True)
+        # 可选：只接受指定 ID 白名单（例如 [35]），过滤掉 0 等误检
+        self.valid_ids        = set(rospy.get_param("~valid_ids", []))
 
         # --- ArUco detector ---
         aruco_dict = cv2.aruco.getPredefinedDictionary(self.dict_id)
@@ -139,6 +141,8 @@ class RobustQrArucoNode:
         rospy.loginfo("[RobustQrArucoNode] Dictionary    : %d (DICT_ARUCO_ORIGINAL=16, DICT_6X6_250=10)", self.dict_id)
         rospy.loginfo("[RobustQrArucoNode] Consensus     : %d frames", self.consensus_frames)
         rospy.loginfo("[RobustQrArucoNode] QR fallback   : %s", "ON" if self.qr_fallback else "OFF")
+        if self.valid_ids:
+            rospy.loginfo("[RobustQrArucoNode] Valid ID list : %s", sorted(self.valid_ids))
         rospy.loginfo("[RobustQrArucoNode] Detection     : %s",
                       "ENABLED" if self.enabled else "DISABLED (call /aruco/enable)")
         rospy.loginfo("=" * 42)
@@ -209,8 +213,11 @@ class RobustQrArucoNode:
         return None
 
     def _find_consensus(self):
-        """返回 buffer 中满足 consensus_frames 的最频繁非负 ID，否则 None。"""
+        """返回 buffer 中满足 consensus_frames 的最频繁非负 ID，否则 None。
+        如果配置了 valid_ids 白名单，则只考虑白名单内的 ID。"""
         valid_ids = [x for x in self.id_buffer if x is not None and x >= 0]
+        if self.valid_ids:
+            valid_ids = [x for x in valid_ids if x in self.valid_ids]
         if len(valid_ids) < self.consensus_frames:
             return None
         counter = Counter(valid_ids)

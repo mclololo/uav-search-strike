@@ -12,6 +12,8 @@
     <!-- QR 检测双保险：ArUco 失败时尝试 cv2.QRCodeDetector -->
     <arg name="qr_fallback"      default="true" />
     <arg name="use_clahe"        default="true" />
+    <!-- 可选：只接受指定 ID 白名单，例如 35。留空则接受所有 ID -->
+    <arg name="valid_ids"        default="" />
 
     <node pkg="mission_pkg" type="aruco_detect_node.py" name="aruco_detect_node" output="screen">
         <param name="image_topic"      value="$(arg image_topic)" />
@@ -23,5 +25,6 @@
         <param name="buffer_size"      value="$(arg buffer_size)" />
         <param name="qr_fallback"      value="$(arg qr_fallback)" />
         <param name="use_clahe"        value="$(arg use_clahe)" />
+        <rosparam param="valid_ids" subst_value="True">$(arg valid_ids)</rosparam>
     </node>
 </launch>
