@@ -334,10 +334,10 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_k_d_vz   = std::to_string(getDbl("visual_servo/k_d_vz", 0.006));
         std::string vs_area_th  = std::to_string(getDbl("visual_servo/approach_area_threshold", 0.06));
         std::string vs_fwd_vel  = std::to_string(getDbl("visual_servo/forward_velocity", 0.9));
-        std::string vs_sprint_v = std::to_string(getDbl("visual_servo/sprint_velocity", 0.85));
-        std::string vs_sprint_t = std::to_string(getDbl("visual_servo/sprint_time", 0.55));
-        std::string vs_brake_v  = std::to_string(getDbl("visual_servo/post_hit_brake_velocity", 0.0));
-        std::string vs_brake_t  = std::to_string(getDbl("visual_servo/post_hit_brake_time", 0.0));
+        std::string vs_sprint_v = std::to_string(getDbl("visual_servo/sprint_velocity", 0.75));
+        std::string vs_sprint_t = std::to_string(getDbl("visual_servo/sprint_time", 0.40));
+        std::string vs_brake_v  = std::to_string(getDbl("visual_servo/post_hit_brake_velocity", 0.55));
+        std::string vs_brake_t  = std::to_string(getDbl("visual_servo/post_hit_brake_time", 0.60));
         std::string vs_data_timeout = std::to_string(getDbl("visual_servo/data_timeout", 1.0));
         std::string tracker_grace_time = std::to_string(getDbl("target_tracker/lost_target_grace_time", 0.8));
         std::string scan_phase_duration = std::to_string(getDbl("balloon_scan/phase_duration", 2.5));
