@@ -37,6 +37,7 @@ using json = nlohmann::json;
 //==============================================================================
 namespace {
     constexpr int ASYNC_SPINNER_THREADS = 2;
+    constexpr double DUPLICATE_COMMAND_SUPPRESS_SEC = 5.0;
     const std::string LIB_PREFIX = "lib";
     const std::string SO_EXTENSION = ".so";
 }
@@ -281,7 +282,7 @@ std::string commandToXmlNode(const std::string& command) {
     if (cmd == "return_cross_frame") {
         std::string turn_pos     = getStr("return_cross_frame/turn_pos",   "-1.0;4.0;1.8");
         double      turn_yaw     = getDbl("return_cross_frame/turn_yaw",   3.14159);
-        std::string body_fwd     = getStr("return_cross_frame/body_forward", "0.5;0.0;0.0");
+        std::string body_fwd     = getStr("return_cross_frame/body_forward", "0.2;0.0;0.0");
         double      exit_yaw     = getDbl("return_cross_frame/exit_yaw",   0.0);
         double      offset_z     = getDbl("return_cross_frame/offset_z",   1.0);
         return
@@ -317,6 +318,7 @@ std::string commandToXmlNode(const std::string& command) {
         std::string param_prefix = "balloon_zone_" + zone;
         std::string approach_pos = getStr(param_prefix + "/approach_pos", "5.3;1.0;0.7");
         std::string goto_pos = getStr(param_prefix + "/goal", "0.0;-0.8;0.5");
+        std::string post_hit_climb_pos = getStr(param_prefix + "/post_hit_climb_pos", approach_pos);
         double yaw_val = getDbl(param_prefix + "/yaw", -1.570796);
         std::string yaw = std::to_string(yaw_val);
         std::string balloon_name = color + "_balloon";
@@ -336,8 +338,9 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_fwd_vel  = std::to_string(getDbl("visual_servo/forward_velocity", 0.9));
         std::string vs_sprint_v = std::to_string(getDbl("visual_servo/sprint_velocity", 0.85));
         std::string vs_sprint_t = std::to_string(getDbl("visual_servo/sprint_time", 0.55));
-        std::string vs_brake_v  = std::to_string(getDbl("visual_servo/post_hit_brake_velocity", 0.0));
-        std::string vs_brake_t  = std::to_string(getDbl("visual_servo/post_hit_brake_time", 0.0));
+        std::string vs_brake_v  = std::to_string(getDbl("visual_servo/post_hit_brake_velocity", 0.35));
+        std::string vs_brake_t  = std::to_string(getDbl("visual_servo/post_hit_brake_time", 0.35));
+        std::string vs_settle_t = std::to_string(getDbl("visual_servo/post_hit_settle_time", 0.45));
         std::string vs_data_timeout = std::to_string(getDbl("visual_servo/data_timeout", 1.0));
         std::string tracker_grace_time = std::to_string(getDbl("target_tracker/lost_target_grace_time", 0.8));
         std::string scan_phase_duration = std::to_string(getDbl("balloon_scan/phase_duration", 2.5));
@@ -390,14 +393,20 @@ std::string commandToXmlNode(const std::string& command) {
             "            </Timeout>\n"
             "          </ForceSuccess>\n"
             "        </Sequence>\n"
-            "      </RetryUntilSuccessful>\n";
+            "      </RetryUntilSuccessful>\n"
+            "      <!-- 撞击后先上升脱离气球区域 -->\n"
+            "      <GoTo goal=\"" + post_hit_climb_pos + "\" yaw=\"" + yaw + "\"/>\n";
     }
     
     // ---- land ----
     if (cmd == "land") {
+        std::string return_high_pos = getStr("land/return_high_pos", "0.0;0.0;1.2");
+        std::string return_low_pos = getStr("land/return_low_pos", "0.0;0.0;0.5");
         double ret_yaw = getDbl("land/return_yaw", 0.0);
         return
-            "      <GoTo goal=\"0.0;0.0;0.5\" yaw=\"" + std::to_string(ret_yaw) + "\"/>\n"
+            "      <!-- 规划返航到起点上方，避免撞球后低空直线返回 -->\n"
+            "      <PlanningControl goal=\"" + return_high_pos + "\"/>\n"
+            "      <GoTo goal=\"" + return_low_pos + "\" yaw=\"" + std::to_string(ret_yaw) + "\"/>\n"
             "      <Land/>\n";
     }
 
@@ -472,8 +481,11 @@ std::vector<std::string> parseCommands(const std::string& raw) {
 
 static BehaviorTreeFactory* g_factory_ptr = nullptr;
 static ros::Publisher* g_result_pub_ptr = nullptr;
+static std::shared_ptr<MavRosConnect> g_mavros_connector;
 static std::mutex g_execution_mutex;
 static std::atomic<bool> g_abort_requested{false};
+static std::string g_last_finished_command;
+static ros::Time g_last_finished_time;
 
 /**
  * @brief LLM 指令回调 - 动态构建并执行行为树
@@ -486,6 +498,20 @@ void llmCommandCallback(const std_msgs::String::ConstPtr& msg) {
         if (g_result_pub_ptr) {
             std_msgs::String result;
             result.data = "BUSY";
+            g_result_pub_ptr->publish(result);
+        }
+        return;
+    }
+
+    ros::Time now = ros::Time::now();
+    if (!g_last_finished_command.empty() &&
+        msg->data == g_last_finished_command &&
+        (now - g_last_finished_time).toSec() < DUPLICATE_COMMAND_SUPPRESS_SEC) {
+        ROS_WARN("Ignoring duplicate mission command received %.3fs after previous mission finished.",
+                 (now - g_last_finished_time).toSec());
+        if (g_result_pub_ptr) {
+            std_msgs::String result;
+            result.data = "DUPLICATE_IGNORED";
             g_result_pub_ptr->publish(result);
         }
         return;
@@ -531,6 +557,9 @@ void llmCommandCallback(const std_msgs::String::ConstPtr& msg) {
         while (status == NodeStatus::RUNNING && ros::ok()) {
             if (g_abort_requested) {
                 tree.haltTree();
+                if (g_mavros_connector) {
+                    g_mavros_connector->stopCommandPublishing();
+                }
                 ROS_WARN("=== Mission Aborted ===");
                 if (g_result_pub_ptr) {
                     std_msgs::String result;
@@ -545,6 +574,11 @@ void llmCommandCallback(const std_msgs::String::ConstPtr& msg) {
         
         ROS_INFO("=== LLM Mission Completed (status: %s) ===", 
                  toStr(status).c_str());
+        g_last_finished_command = msg->data;
+        g_last_finished_time = ros::Time::now();
+        if (g_mavros_connector) {
+            g_mavros_connector->stopCommandPublishing();
+        }
         
         if (g_result_pub_ptr) {
             std_msgs::String result;
@@ -553,6 +587,11 @@ void llmCommandCallback(const std_msgs::String::ConstPtr& msg) {
         }
         
     } catch (const std::exception& e) {
+        g_last_finished_command = msg->data;
+        g_last_finished_time = ros::Time::now();
+        if (g_mavros_connector) {
+            g_mavros_connector->stopCommandPublishing();
+        }
         ROS_ERROR("Failed to execute LLM mission: %s", e.what());
         if (g_result_pub_ptr) {
             std_msgs::String result;
@@ -589,6 +628,7 @@ int main(int argc, char** argv) {
     auto mavros_connector = MavRosConnect::getInstance(
         std::make_shared<ros::NodeHandle>(nh)
     );
+    g_mavros_connector = mavros_connector;
     
     // 4. 加载配置
     BehaviorTreeConfig config = loadConfiguration(nh_private);
@@ -669,6 +709,7 @@ int main(int argc, char** argv) {
         ROS_INFO("=== Starting Behavior Tree Execution ===");
         tree.tickWhileRunning();
         ROS_INFO("=== Behavior Tree Execution Completed ===");
+        mavros_connector->stopCommandPublishing();
         
         // 12. 清理和退出
         spinner.stop();

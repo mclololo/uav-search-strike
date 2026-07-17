@@ -159,6 +159,14 @@ void MavRosConnect::updateCommand(const mavros_msgs::PositionTarget &cmd)
     has_init_cmd = true;
 }
 
+void MavRosConnect::stopCommandPublishing()
+{
+    std::lock_guard<std::mutex> lock(cmd_mtx);
+    has_init_cmd = false;
+    hover_locked_ = false;
+    ROS_INFO("[MavRosConnect] Setpoint publishing stopped.");
+}
+
 void MavRosConnect::cmdPublishLoop(const ros::TimerEvent &event)
 {
     // 跟踪启动后的延迟，避免刚启动时立即警告

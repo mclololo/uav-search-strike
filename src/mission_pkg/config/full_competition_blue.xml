@@ -24,9 +24,9 @@
       <!-- 8. 反向穿过方框 -->
       <PlanningControl goal="{frame_center}" offset_z="1.0"/>
       <!-- 9. 机体系前进20cm -->
-      <GoTo goal="0.5;0.0;0.0" frame="1"/>
+      <GoTo goal="0.2;0.0;0.0" frame="1"/>
       <!-- 9.5 掉头朝向C区（从yaw≈π转到yaw=0，面向+x方向） -->
-      <GoTo goal="0.5;0.0;0.0" frame="1" yaw="0.0"/>
+      <GoTo goal="0.2;0.0;0.0" frame="1" yaw="0.0"/>
       <!-- 10. 规划飞到C区左端，准备打击C区气球 -->
       <PlanningControl goal="5.3;1.0;0.7"/>
       <!-- ============================================================ -->
@@ -67,8 +67,9 @@
                     forward_velocity="0.6"
                     sprint_velocity="0.85"
                     sprint_time="0.55"
-                    post_hit_brake_velocity="0.0"
-                    post_hit_brake_time="0.0"
+                    post_hit_brake_velocity="0.35"
+                    post_hit_brake_time="0.35"
+                    post_hit_settle_time="0.45"
                     data_timeout="0.25"
                     recovery_delay="0.1"
                     recovery_backoff_velocity="-0.25"
@@ -80,9 +81,13 @@
           </ForceSuccess>
         </Sequence>
       </RetryUntilSuccessful>
-      <!-- 13. 规划返回起点 -->
+      <!-- 13. 撞击后先上升脱离气球区域 -->
+      <GoTo goal="5.3;1.0;1.4"/>
+      <!-- 14. 规划返回起点上方 -->
+      <PlanningControl goal="0.0;0.0;1.2"/>
+      <!-- 15. 降到降落前低位点 -->
       <GoTo goal="0.0;0.0;0.5" yaw="0.0"/>
-      <!-- 14. 降落 -->
+      <!-- 16. 降落 -->
       <Land use_speed="0" />
     </Sequence>
   </BehaviorTree>

@@ -56,10 +56,12 @@
     <!-- 返回穿越方框 -->
     <param name="return_cross_frame/turn_pos"     value="4.5;0.5;1.8"   type="str"/>    <!-- 转向位置 -->
     <param name="return_cross_frame/turn_yaw"     value="3.14159"        type="double"/> <!-- 转向航向(rad) -->
-    <param name="return_cross_frame/body_forward"  value="0.5;0.0;0.0"   type="str"/>    <!-- 机体系前进距离 -->
+    <param name="return_cross_frame/body_forward"  value="0.2;0.0;0.0"   type="str"/>    <!-- 机体系前进距离 -->
     <param name="return_cross_frame/offset_z"      value="1.0"           type="double"/> <!-- 反向穿框偏移 -->
 
-    <!-- 降落 -->
+    <!-- 降落 / 返航 -->
+    <param name="land/return_high_pos" value="0.0;0.0;1.2" type="str"/> <!-- 规划返航到起点上方 -->
+    <param name="land/return_low_pos"  value="0.0;0.0;0.5" type="str"/> <!-- 降落前低位点 -->
     <param name="land/return_yaw" value="0.0" type="double"/>         <!-- 降落前航向(rad) -->
 
     <!-- ============================================ -->
@@ -84,14 +86,17 @@
     <param name="balloon_zone_A/approach_pos" value="5.3;1.0;1.0"  type="str"/>
     <param name="balloon_zone_A/goal"         value="5.3;1.0;1.0"  type="str"/>
     <param name="balloon_zone_A/yaw"          value="1.5708"        type="double"/>
+    <param name="balloon_zone_A/post_hit_climb_pos" value="5.3;1.0;1.4" type="str"/>
     <!-- B区 (紫色气球) -->
     <param name="balloon_zone_B/approach_pos" value="5.3;-2.0;0.7" type="str"/>
     <param name="balloon_zone_B/goal"         value="5.3;-2.0;0.7" type="str"/>
     <param name="balloon_zone_B/yaw"          value="3.14159"       type="double"/>
+    <param name="balloon_zone_B/post_hit_climb_pos" value="5.3;-2.0;1.4" type="str"/>
     <!-- C区 (蓝色气球) -->
     <param name="balloon_zone_C/approach_pos" value="5.3;1.0;0.7"  type="str"/>
     <param name="balloon_zone_C/goal"         value="5.3;1.0;0.7"  type="str"/>
     <param name="balloon_zone_C/yaw"          value="-1.5708"       type="double"/>
+    <param name="balloon_zone_C/post_hit_climb_pos" value="5.3;1.0;1.4" type="str"/>
 
     <!-- ============================================ -->
     <!-- VisualServo 视觉伺服参数（与手调 XML 一致）     -->
@@ -104,8 +109,9 @@
     <param name="visual_servo/forward_velocity"         value="0.6"   type="double"/>
     <param name="visual_servo/sprint_velocity"          value="0.85"   type="double"/>
     <param name="visual_servo/sprint_time"              value="0.55"  type="double"/>
-    <param name="visual_servo/post_hit_brake_velocity"  value="0.0"  type="double"/>
-    <param name="visual_servo/post_hit_brake_time"      value="0.0"  type="double"/>
+    <param name="visual_servo/post_hit_brake_velocity"  value="0.35"  type="double"/>
+    <param name="visual_servo/post_hit_brake_time"      value="0.35"  type="double"/>
+    <param name="visual_servo/post_hit_settle_time"     value="0.45"  type="double"/>
     <param name="visual_servo/data_timeout"              value="0.25"   type="double"/>
     <!-- 目标丢失后的主动恢复参数 -->
     <param name="visual_servo/recovery_delay"            value="0.1"   type="double"/>
