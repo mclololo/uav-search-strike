@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""ArUco marker detection ROS node (Python version)
+"""鲁棒 ArUco + QR 二维码识别 ROS 节点（带多帧投票与双保险）
 
-Drop-in replacement for aruco_detect_node (C++).
-Identical service/topic interface:
-  Service  : /aruco/enable  (std_srvs/SetBool)  -- enable/disable detection
-  Publisher: /aruco/detected_id (std_msgs/Int32) -- detected marker ID
-  Publisher: /aruco/debug_image (sensor_msgs/Image) -- optional debug image
-  Subscriber: ~image_topic param (default /rflysim/sensor2/img_rgb)
+兼容原接口：
+  Service  : /aruco/enable  (std_srvs/SetBool)
+  Publisher: /aruco/detected_id (std_msgs/Int32)
+  Publisher: /aruco/debug_image (sensor_msgs/Image)
+  Publisher: /qr_result (std_msgs/String)   -- 新增：QR 原始内容
+  Subscriber: ~image_topic (default /rflysim/sensor2/img_rgb)
+
+改进点：
+  1. 多帧投票：同一 ID 连续/累计出现 N 次才发布，抑制单帧误检。
+  2. QRCodeDetector fallback：ArUco 失败时尝试 OpenCV QR 检测。
+  3. 预处理增强：CLAHE + 中值滤波，提升仿真图像识别率。
+  4. 自动去抖：发布成功后延迟一小段时间再 unsubscribe，避免漏帧。
 """
 
 import rospy
 import cv2
 import numpy as np
+from collections import deque, Counter
 from sensor_msgs.msg import Image
-from std_msgs.msg import Int32
+from std_msgs.msg import Int32, String
 from std_srvs.srv import SetBool, SetBoolResponse
 
 # --- cv_bridge: pure-numpy fallback (Boost.Python conflict on Python 3.9+) ---
@@ -67,32 +74,59 @@ def _numpy_to_imgmsg(arr: np.ndarray, header, encoding="bgr8") -> Image:
 
 # ---------------------------------------------------------------------------
 
-class ArucoDetectNode:
+class RobustQrArucoNode:
     def __init__(self):
         rospy.init_node("aruco_detect_node", anonymous=False)
 
         # --- params ---
-        self.image_topic  = rospy.get_param("~image_topic", "/rflysim/sensor2/img_rgb")
-        dict_id           = rospy.get_param("~dictionary_id", 16)  # DICT_ARUCO_ORIGINAL = 16
-        self.show_debug   = rospy.get_param("~show_debug", False)
-        self.save_dir     = rospy.get_param("~save_dir", "")
-        enabled_default   = rospy.get_param("~enabled_default", False)
+        self.image_topic    = rospy.get_param("~image_topic", "/rflysim/sensor2/img_rgb")
+        self.dict_id        = rospy.get_param("~dictionary_id", 16)  # DICT_ARUCO_ORIGINAL
+        self.show_debug     = rospy.get_param("~show_debug", False)
+        self.save_dir       = rospy.get_param("~save_dir", "")
+        enabled_default     = rospy.get_param("~enabled_default", False)
+
+        # 多帧投票参数
+        self.consensus_frames = max(1, rospy.get_param("~consensus_frames", 3))
+        self.buffer_size      = max(self.consensus_frames,
+                                    rospy.get_param("~buffer_size", 8))
+        self.qr_fallback      = rospy.get_param("~qr_fallback", True)
+        self.use_clahe        = rospy.get_param("~use_clahe", True)
 
         # --- ArUco detector ---
-        aruco_dict = cv2.aruco.getPredefinedDictionary(dict_id)
-        self.params = cv2.aruco.DetectorParameters_create()
-        # 移除之前可能导致误判的自定义亚像素和阈值参数，直接使用 OpenCV 最稳定的默认值
-        # 若仿真中识别极差，仅可单独开启 cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+        aruco_dict = cv2.aruco.getPredefinedDictionary(self.dict_id)
+        params = cv2.aruco.DetectorParameters_create()
+        # 使用较稳定的默认参数，不过度放宽，减少误检
+        params.adaptiveThreshWinSizeMin = 3
+        params.adaptiveThreshWinSizeMax = 53
+        params.adaptiveThreshWinSizeStep = 4
+        params.adaptiveThreshConstant = 7.0
+        params.minMarkerPerimeterRate = 0.02
+        params.maxMarkerPerimeterRate = 4.0
+        params.polygonalApproxAccuracyRate = 0.05
+        params.minCornerDistanceRate = 0.02
+        params.perspectiveRemovePixelPerCell = 8
+        params.perspectiveRemoveIgnoredMarginPerCell = 0.2
+        params.errorCorrectionRate = 0.8
+        params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+        params.cornerRefinementWinSize = 5
+        params.cornerRefinementMaxIterations = 30
+        params.cornerRefinementMinAccuracy = 0.1
 
         self.aruco_dict = aruco_dict
+        self.params = params
+
+        # --- QR fallback ---
+        self.qr_detector = cv2.QRCodeDetector() if self.qr_fallback else None
 
         # --- state ---
         self.enabled       = enabled_default
         self.has_detection = False
         self.img_sub       = None   # dynamically managed
+        self.id_buffer     = deque(maxlen=self.buffer_size)
 
         # --- publishers / services ---
         self.id_pub        = rospy.Publisher("/aruco/detected_id", Int32, queue_size=10)
+        self.qr_pub        = rospy.Publisher("/qr_result", String, queue_size=10)
         self.debug_img_pub = rospy.Publisher("/aruco/debug_image", Image, queue_size=1)
         self.enable_srv    = rospy.Service("/aruco/enable", SetBool, self._enable_cb)
 
@@ -100,10 +134,12 @@ class ArucoDetectNode:
             self._subscribe()
 
         rospy.loginfo("=" * 42)
-        rospy.loginfo("[ArucoDetectNode] Python node started")
-        rospy.loginfo("[ArucoDetectNode] Image topic : %s", self.image_topic)
-        rospy.loginfo("[ArucoDetectNode] Dictionary  : %d (DICT_ARUCO_ORIGINAL=16, DICT_6X6_250=10)", dict_id)
-        rospy.loginfo("[ArucoDetectNode] Detection   : %s",
+        rospy.loginfo("[RobustQrArucoNode] Python node started")
+        rospy.loginfo("[RobustQrArucoNode] Image topic   : %s", self.image_topic)
+        rospy.loginfo("[RobustQrArucoNode] Dictionary    : %d (DICT_ARUCO_ORIGINAL=16, DICT_6X6_250=10)", self.dict_id)
+        rospy.loginfo("[RobustQrArucoNode] Consensus     : %d frames", self.consensus_frames)
+        rospy.loginfo("[RobustQrArucoNode] QR fallback   : %s", "ON" if self.qr_fallback else "OFF")
+        rospy.loginfo("[RobustQrArucoNode] Detection     : %s",
                       "ENABLED" if self.enabled else "DISABLED (call /aruco/enable)")
         rospy.loginfo("=" * 42)
 
@@ -112,39 +148,76 @@ class ArucoDetectNode:
         if self.img_sub is None:
             self.img_sub = rospy.Subscriber(
                 self.image_topic, Image, self._image_cb, queue_size=1)
-            rospy.loginfo("[ArucoDetectNode] Subscribed to %s", self.image_topic)
+            rospy.loginfo("[RobustQrArucoNode] Subscribed to %s", self.image_topic)
 
     def _unsubscribe(self):
         if self.img_sub is not None:
             self.img_sub.unregister()
             self.img_sub = None
-            rospy.loginfo("[ArucoDetectNode] Unsubscribed (saving CPU)")
+            rospy.loginfo("[RobustQrArucoNode] Unsubscribed (saving CPU)")
 
     def _deferred_unsubscribe(self, _event=None):
-        """Unsubscribe via Timer so it runs OUTSIDE the image callback.
-        Calling unregister() from within its own callback causes a ROS error."""
+        """Unsubscribe via Timer so it runs OUTSIDE the image callback."""
         self._unsubscribe()
-        rospy.loginfo("[ArucoDetectNode] Detection auto-disabled after success (saving CPU)")
+        rospy.loginfo("[RobustQrArucoNode] Detection auto-disabled after success (saving CPU)")
 
     # ------------------------------------------------------------------ service
     def _enable_cb(self, req):
         self.enabled       = req.data
         self.has_detection = False
+        self.id_buffer.clear()
         if self.enabled:
             self._subscribe()
-            rospy.loginfo("[ArucoDetectNode] >>> Detection ENABLED <<<")
-            return SetBoolResponse(success=True, message="ArUco detection enabled")
+            rospy.loginfo("[RobustQrArucoNode] >>> Detection ENABLED <<<")
+            return SetBoolResponse(success=True, message="ArUco/Qr detection enabled")
         else:
             self._unsubscribe()
-            rospy.loginfo("[ArucoDetectNode] >>> Detection DISABLED <<<")
-            return SetBoolResponse(success=True, message="ArUco detection disabled")
+            rospy.loginfo("[RobustQrArucoNode] >>> Detection DISABLED <<<")
+            return SetBoolResponse(success=True, message="ArUco/Qr detection disabled")
 
-    # ------------------------------------------------------------------ detection
-    def _detect(self, gray):
-        """Single detectMarkers call on raw grayscale -- no preprocessing."""
-        corners, ids, rejected = cv2.aruco.detectMarkers(
+    # ------------------------------------------------------------------ helpers
+    def _preprocess(self, gray: np.ndarray) -> np.ndarray:
+        """轻微增强对比度，提升仿真图像中二维码/ArUco 识别率。"""
+        if self.use_clahe:
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            gray = clahe.apply(gray)
+        # 轻中值滤波去噪，保留边缘
+        gray = cv2.medianBlur(gray, 3)
+        return gray
+
+    def _detect_aruco(self, gray: np.ndarray):
+        """Return (id, corners) or (None, None)."""
+        corners, ids, _ = cv2.aruco.detectMarkers(
             gray, self.aruco_dict, parameters=self.params)
-        return corners, ids, rejected
+        if ids is not None and len(ids) > 0:
+            return int(ids[0][0]), corners
+        return None, None
+
+    def _detect_qr(self, gray: np.ndarray):
+        """Return numeric id if QR data is integer, else publish raw string and return None."""
+        if self.qr_detector is None:
+            return None
+        data, _, _ = self.qr_detector.detectAndDecode(gray)
+        if data:
+            rospy.loginfo_throttle(0.5, "[RobustQrArucoNode] QR raw data: %s", data)
+            self.qr_pub.publish(String(data=data))
+            try:
+                return int(data)
+            except ValueError:
+                rospy.logwarn("[RobustQrArucoNode] QR data is not numeric: '%s'", data)
+                return None
+        return None
+
+    def _find_consensus(self):
+        """返回 buffer 中满足 consensus_frames 的最频繁非负 ID，否则 None。"""
+        valid_ids = [x for x in self.id_buffer if x is not None and x >= 0]
+        if len(valid_ids) < self.consensus_frames:
+            return None
+        counter = Counter(valid_ids)
+        best_id, best_count = counter.most_common(1)[0]
+        if best_count >= self.consensus_frames:
+            return best_id
+        return None
 
     # ------------------------------------------------------------------ image cb
     def _image_cb(self, msg: Image):
@@ -154,67 +227,76 @@ class ArucoDetectNode:
         try:
             bgr = _imgmsg_to_numpy(msg)
         except Exception as e:
-            rospy.logerr_throttle(1.0, "[ArucoDetectNode] Image decode error: %s", e)
+            rospy.logerr_throttle(1.0, "[RobustQrArucoNode] Image decode error: %s", e)
             return
 
         if bgr is None or bgr.size == 0:
             return
 
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-        corners, ids, rejected = self._detect(gray)
+        gray = self._preprocess(gray)
 
-        detected = ids is not None and len(ids) > 0
+        # --- detection ---
+        detected_id, corners = self._detect_aruco(gray)
+        source = "aruco"
+
+        if detected_id is None and self.qr_fallback:
+            detected_id = self._detect_qr(gray)
+            source = "qr"
+
+        # --- voting buffer ---
+        self.id_buffer.append(detected_id if detected_id is not None else -1)
+        consensus_id = self._find_consensus()
+
         need_debug = self.show_debug or self.debug_img_pub.get_num_connections() > 0
 
         # --- draw debug image ---
-        if need_debug or detected:
+        if need_debug or consensus_id is not None:
             dbg = bgr.copy()
-            if detected:
-                cv2.aruco.drawDetectedMarkers(dbg, corners, ids)
+            if detected_id is not None and corners is not None:
+                cv2.aruco.drawDetectedMarkers(dbg, corners,
+                                              np.array([[detected_id]], dtype=np.int32))
             if need_debug:
-                if rejected:
-                    for r in rejected:
-                        pts = r.reshape(-1, 1, 2).astype(np.int32)
-                        cv2.polylines(dbg, [pts], True, (0, 0, 255), 1)
-                status = (f"ID: {int(ids[0][0])}" if detected
-                          else f"NO MATCH (rej: {len(rejected) if rejected else 0})")
+                if detected_id is not None:
+                    status = f"{source.upper()} ID: {detected_id} (buffer: {list(self.id_buffer)})"
+                    color = (0, 255, 0)
+                else:
+                    status = f"NO MATCH (buffer: {list(self.id_buffer)})"
+                    color = (0, 0, 255)
                 cv2.putText(dbg, status, (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8,
-                            (0, 255, 0) if detected else (0, 0, 255), 2)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
                 if self.debug_img_pub.get_num_connections() > 0:
                     self.debug_img_pub.publish(_numpy_to_imgmsg(dbg, msg.header))
                 if self.show_debug:
-                    cv2.imshow("ArUco Detection (Python)", dbg)
+                    cv2.imshow("ArUco / QR Detection", dbg)
                     cv2.waitKey(1)
 
         # --- publish result ---
-        if detected:
-            marker_id = int(ids[0][0])
-            self.id_pub.publish(Int32(data=marker_id))
+        if consensus_id is not None:
+            self.id_pub.publish(Int32(data=consensus_id))
 
             if self.save_dir and need_debug:
-                path = f"{self.save_dir}/aruco_id_{marker_id}.jpg"
+                path = f"{self.save_dir}/qr_aruco_id_{consensus_id}.jpg"
                 cv2.imwrite(path, dbg)
-                rospy.loginfo("[ArucoDetectNode] Image saved: %s", path)
+                rospy.loginfo("[RobustQrArucoNode] Image saved: %s", path)
 
             self.has_detection = True
 
-            # eye-catching terminal output (ASCII only - no CJK dependency)
             rospy.loginfo("\033[1;33m+==========================================+\033[0m")
-            rospy.loginfo("\033[1;33m|  \033[1;32m*** ArUco Marker Detected! ***\033[1;33m        |\033[0m")
+            rospy.loginfo("\033[1;33m|  \033[1;32m*** QR/ArUco Marker Detected! ***\033[1;33m    |\033[0m")
             rospy.loginfo("\033[1;33m|                                          |\033[0m")
-            rospy.loginfo("\033[1;33m|    \033[1;37mDetected ID: \033[1;36m%-4d\033[1;33m                    |\033[0m",
-                          marker_id)
+            rospy.loginfo("\033[1;33m|    \033[1;37mSource: \033[1;36m%-8s\033[1;33m                  |\033[0m", source)
+            rospy.loginfo("\033[1;33m|    \033[1;37mDetected ID: \033[1;36m%-4d\033[1;33m                  |\033[0m",
+                          consensus_id)
             rospy.loginfo("\033[1;33m+==========================================+\033[0m")
 
             # auto-disable: schedule unsubscription OUTSIDE this callback
-            # (cannot call unregister() from within own callback in ROS Python)
             self.enabled = False
             rospy.Timer(rospy.Duration(0.05), self._deferred_unsubscribe, oneshot=True)
         else:
             rospy.loginfo_throttle(2.0,
-                "[ArucoDetectNode] Searching... no marker found (rejected: %d)",
-                len(rejected) if rejected else 0)
+                "[RobustQrArucoNode] Searching... buffer: %s",
+                list(self.id_buffer))
 
     # ------------------------------------------------------------------ run
     def run(self):
@@ -225,11 +307,11 @@ class ArucoDetectNode:
 
 if __name__ == "__main__":
     try:
-        node = ArucoDetectNode()
+        node = RobustQrArucoNode()
         node.run()
     except rospy.ROSInterruptException:
         pass
     except Exception as e:
-        rospy.logerr("[ArucoDetectNode] Fatal: %s", e)
+        rospy.logerr("[RobustQrArucoNode] Fatal: %s", e)
         import traceback
         traceback.print_exc()
