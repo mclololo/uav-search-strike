@@ -41,7 +41,7 @@
 
     <!-- 穿越方框 -->
     <param name="cross_frame/observe_pos"        value="0.0;-1.0;1.0"  type="str"/>    <!-- 观察位置 -->
-    <param name="cross_frame/observe_delay_ms"    value="2000"          type="double"/> <!-- 到达后等待时间(ms) -->
+    <param name="cross_frame/observe_delay_ms"    value="1000"          type="double"/> <!-- 到达后等待时间(ms) -->
     <param name="cross_frame/object_width"        value="1.3"          type="double"/> <!-- 方框物理宽度(m) -->
     <param name="cross_frame/object_height"       value="1.3"          type="double"/> <!-- 方框物理高度(m) -->
     <param name="cross_frame/occlusion_direction" value="right"         type="str"/>    <!-- 遮挡方向 -->

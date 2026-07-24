@@ -253,7 +253,7 @@ std::string commandToXmlNode(const std::string& command) {
         
         return 
             "      <!-- 移动到观察位置 -->\n"
-            "      <GoTo goal=\"" + observe + "\"/>\n"
+            "      <PlanningControl goal=\"" + observe + "\"/>\n"
             "      <Delay delay_msec=\"" + delay + "\">\n"
             "        <AlwaysSuccess/>\n"
             "      </Delay>\n"
@@ -271,7 +271,7 @@ std::string commandToXmlNode(const std::string& command) {
     if (cmd == "detect_aruco") {
         std::string hover = getStr("aruco/hover_pos", "-1.0;4.0;1.8");
         return
-            "      <GoTo goal=\"" + hover + "\"/>\n"
+            "      <PlanningControl goal=\"" + hover + "\"/>\n"
             "      <Parallel success_count=\"2\" failure_count=\"1\">\n"
             "        <GoTo goal=\"" + hover + "\"/>\n"
             "        <ArucoDetector aruco_id=\"{detected_aruco_id}\"/>\n"
