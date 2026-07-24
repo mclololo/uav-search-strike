@@ -29,15 +29,20 @@ PortsList VisualServo::providedPorts() {
              InputPort<double>("k_d_vz", 0.006, "垂直速度 D 增益"),
              InputPort<double>("max_vz", 0.3, "最大垂直速度 (m/s)"),
              InputPort<double>("deadzone_vz", 10.0, "垂直死区 (pixel)"),
-             InputPort<double>("forward_velocity", 0.9, "逼近阶段前进速度 (m/s)"),
-             InputPort<double>("sprint_velocity", 0.85, "冲刺速度 (m/s)"),
-             InputPort<double>("sprint_time", 0.55, "冲刺持续时间 (s)"),
+             InputPort<double>("forward_velocity", 1.0, "逼近阶段前进速度 (m/s)"),
+             InputPort<double>("sprint_velocity", 1.2, "冲刺速度 (m/s)"),
+             InputPort<double>("sprint_time", 1.0, "冲刺最大持续时间 (s)，安全上限"),
+             InputPort<double>("hit_area_ratio", 0.35,
+                               "冲刺阶段判定接触的面积占比：目标占画面超过此值认为已撞到，立即收油刹车"),
              InputPort<double>("post_hit_brake_velocity", 0.35, "撞击后反向刹车速度 (m/s)"),
              InputPort<double>("post_hit_brake_time", 0.35, "撞击后反向刹车时间 (s)"),
              InputPort<double>("post_hit_settle_time", 0.45, "撞击后悬停稳定时间 (s)"),
              InputPort<double>("data_timeout", 0.3, "数据超时 (s)"),
              InputPort<double>("approach_area_threshold", 0.06, "触发冲刺的面积占比"),
              InputPort<double>("center_tolerance", 0.15, "对齐判定区域比例"),
+             InputPort<double>("center_exit_factor", 1.5,
+                               "居中退出迟滞系数：APPROACHING 中误差超过 tolerance×factor 才退回 ALIGN，"
+                               "防止对齐边界抖动导致前进速度 0↔max 来回切换"),
              // 目标丢失后的主动恢复参数
              InputPort<double>("recovery_delay", 0.15, "丢失多久后进入恢复 (s)"),
              InputPort<double>("recovery_backoff_velocity", -0.25, "恢复阶段后退速度 (m/s, 负值)"),
@@ -60,6 +65,7 @@ NodeStatus VisualServo::onStart() {
     forward_velocity_ = getInput<double>("forward_velocity").value();
     sprint_velocity_ = getInput<double>("sprint_velocity").value();
     sprint_time_ = getInput<double>("sprint_time").value();
+    hit_area_ratio_ = getInput<double>("hit_area_ratio").value();
     post_hit_brake_velocity_ = getInput<double>("post_hit_brake_velocity").value();
     post_hit_brake_time_ = getInput<double>("post_hit_brake_time").value();
     post_hit_settle_time_ = getInput<double>("post_hit_settle_time").value();
@@ -67,6 +73,7 @@ NodeStatus VisualServo::onStart() {
     data_timeout_ = getInput<double>("data_timeout").value();
     approach_area_threshold_ = getInput<double>("approach_area_threshold").value();
     center_tolerance_ = getInput<double>("center_tolerance").value();
+    center_exit_factor_ = getInput<double>("center_exit_factor").value();
 
     recovery_delay_ = getInput<double>("recovery_delay").value();
     recovery_backoff_velocity_ = getInput<double>("recovery_backoff_velocity").value();
@@ -85,9 +92,10 @@ NodeStatus VisualServo::onStart() {
     updateTargetData();
 
     ROS_INFO("[%s]: Visual Servo Started (VX+VZ+yaw_rate)", name().c_str());
-    ROS_INFO("[%s]: forward_vel=%.2f sprint_vel=%.2f sprint_time=%.2f brake=%.2fm/s %.2fs settle=%.2fs area_thresh=%.3f",
-             name().c_str(), forward_velocity_, sprint_velocity_, sprint_time_,
-             post_hit_brake_velocity_, post_hit_brake_time_, post_hit_settle_time_, approach_area_threshold_);
+    ROS_INFO("[%s]: forward_vel=%.2f sprint_vel=%.2f sprint_time=%.2f hit_area=%.2f brake=%.2fm/s %.2fs settle=%.2fs area_thresh=%.3f center_exit=x%.2f",
+             name().c_str(), forward_velocity_, sprint_velocity_, sprint_time_, hit_area_ratio_,
+             post_hit_brake_velocity_, post_hit_brake_time_, post_hit_settle_time_, approach_area_threshold_,
+             center_exit_factor_);
     ROS_INFO("[%s]: recovery delay=%.2fs backoff=%.2fm/s %.2fs yaw=%.2f timeout=%.2fs",
              name().c_str(), recovery_delay_, recovery_backoff_velocity_, recovery_backoff_time_,
              recovery_yaw_rate_, recovery_total_timeout_);
@@ -141,7 +149,10 @@ NodeStatus VisualServo::onRunning() {
         }
     }
 
-    if (!target_now_valid) {
+    // SPRINTING 是已对准后的盲冲刺（撞到为止，最长 sprint_time），末端贴近气球时
+    // 检测易丢失（气球过大超出画面/YOLO 丢检），此时中断冲刺等于放弃打击，
+    // 因此冲刺阶段不响应目标丢失，沿最后对准方向完成冲刺。
+    if (!target_now_valid && current_state_ != SPRINTING) {
         double age = targetAge();
         if (age >= recovery_delay_) {
             return startRecovery();
@@ -184,7 +195,10 @@ NodeStatus VisualServo::onRunning() {
 
         case APPROACHING: {
             publishVelocityWithYawRate(forward_velocity_, 0, vz, yaw_rate);
-            if (!isCentered()) {
+            // 退出判定使用放大的容差（迟滞）：只有明显偏离中心才退回 ALIGN。
+            // 若与进入条件共用同一阈值，对齐边界上的检测抖动/气球移动会让
+            // 前进速度在 0 和 max 之间来回切换，表现为追击中的突然加减速。
+            if (!isCentered(center_exit_factor_)) {
                 current_state_ = ALIGN;
                 align_stable_frames_ = 0;
                 publishDebugEvent("vs_state", "APPROACHING -> ALIGN");
@@ -202,6 +216,15 @@ NodeStatus VisualServo::onRunning() {
 
         case SPRINTING: {
             double sprint_dt = (ros::Time::now() - sprint_start_time_).toSec();
+            // 接触判定优先看面积：气球占满画面一定比例即认为已撞上，立即收油。
+            // 纯定时冲刺的问题：触发冲刺时距气球约 0.5~0.7m，而同向移动的气球
+            // 会进一步降低接近速度，固定时长冲不完剩余距离 -> 未接触就刹车"收手"。
+            if (current_ratio >= hit_area_ratio_) {
+                ROS_INFO("[%s]: Hit! Area %.1f%% >= %.1f%% at t=%.2fs -> BRAKE", name().c_str(),
+                         current_ratio * 100, hit_area_ratio_ * 100, sprint_dt);
+                return startPostHitBrake("hit area reached");
+            }
+            // 时间上限只是安全兜底：检测丢失（气球出画/遮挡）时靠它终止盲冲
             if (sprint_dt >= sprint_time_) {
                 return startPostHitBrake("sprint finished");
             }
@@ -273,11 +296,11 @@ double VisualServo::targetAge() const {
     return (ros::Time::now() - last_valid_detection_time_).toSec();
 }
 
-bool VisualServo::isCentered() const {
+bool VisualServo::isCentered(double factor) const {
     double err_x = last_target_.center_x - img_cx_;
     double err_y = last_target_.center_y - img_cy_;
-    double tol_w = img_w_ * center_tolerance_;
-    double tol_h = img_h_ * center_tolerance_;
+    double tol_w = img_w_ * center_tolerance_ * factor;
+    double tol_h = img_h_ * center_tolerance_ * factor;
     return std::abs(err_x) < tol_w && std::abs(err_y) < tol_h;
 }
 

@@ -20,10 +20,12 @@ Date: 2026-03-17
 
 import os
 import sys
+import math
 import cv2
 import numpy as np
 import rospy
 import torch
+from collections import deque
 from datetime import datetime
 from typing import Optional, Tuple
 
@@ -80,6 +82,60 @@ _COLOR_RANGES = {
     ],
 }
 _MIN_PIXEL_COUNT = 30  # 低于此值认为该颜色不存在
+_COLOR_MARGIN = 1.3    # 前两名颜色像素数比值低于此值判为"暧昧"（色相边界/光照干扰）
+
+
+class _BalloonColorStabilizer:
+    """气球颜色跨帧稳定器：按空间位置匹配轨迹，多帧投票抑制误分类。
+
+    背景：蓝[100,130]/紫[130,170]/红[170,180] 的 HSV 硬边界相邻，
+    单帧分类在色相边界处会在 blue/purple/red 间随机翻转，
+    导致下游按类名匹配的跟踪器丢目标或锁定错误气球。
+    本类对每只气球（按中心距匹配轨迹）做最近 N 帧多数投票，
+    "ambiguous/unknown" 帧不参与投票，轨迹保持历史结论。
+    """
+
+    def __init__(self, vote_window: int = 7, match_dist: float = 150.0, max_miss: int = 5):
+        self.vote_window = vote_window  # 投票窗口（帧数，约 0.7s @10Hz）
+        self.match_dist = match_dist    # 轨迹匹配的最大中心距 (px)
+        self.max_miss = max_miss        # 轨迹连续多少帧未匹配后丢弃
+        self._tracks = []               # [{cx, cy, votes, color, miss}]
+
+    def update(self, cx: float, cy: float, color: str) -> str:
+        """输入一只气球本帧的分类结果，返回稳定后的颜色（可能为 "unknown"）。"""
+        best_i, best_d = -1, self.match_dist
+        for i, tr in enumerate(self._tracks):
+            d = math.hypot(cx - tr["cx"], cy - tr["cy"])
+            if d < best_d:
+                best_i, best_d = i, d
+        if best_i < 0:
+            tr = {"cx": cx, "cy": cy, "votes": deque(maxlen=self.vote_window),
+                  "color": None, "miss": 0}
+            self._tracks.append(tr)
+        else:
+            tr = self._tracks[best_i]
+            tr["cx"], tr["cy"] = cx, cy
+        tr["miss"] = 0
+
+        # ambiguous/unknown 不投票，保持历史结论
+        if color not in ("unknown", "ambiguous"):
+            tr["votes"].append(color)
+
+        if tr["votes"]:
+            counts = {}
+            for v in tr["votes"]:
+                counts[v] = counts.get(v, 0) + 1
+            win, cnt = max(counts.items(), key=lambda kv: kv[1])
+            # 新轨迹先采纳当前多数；已有轨迹需得过半才改结论（防止渐变漂移）
+            if tr["color"] is None or cnt > len(tr["votes"]) / 2:
+                tr["color"] = win
+        return tr["color"] if tr["color"] else "unknown"
+
+    def end_frame(self):
+        """每帧调用一次：所有轨迹老化一拍，丢弃长期未匹配的轨迹。"""
+        for tr in self._tracks:
+            tr["miss"] += 1
+        self._tracks = [t for t in self._tracks if t["miss"] <= self.max_miss]
 
 
 def classify_balloon_color(
@@ -96,7 +152,9 @@ def classify_balloon_color(
 
     Returns:
         (color_name, center):
-            color_name: "red" / "blue" / "purple" / "unknown"
+            color_name: "red" / "blue" / "purple" / "ambiguous" / "unknown"
+                ambiguous: 前两名颜色像素数差距不足（色相边界/光照干扰），
+                           本次不给出确定结论，供跨帧投票时跳过
             center: 该颜色区域的质心坐标 (cx, cy)，unknown 时为 None
     """
     x1, y1, x2, y2 = bbox
@@ -113,10 +171,8 @@ def classify_balloon_color(
     else:
         roi_hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_RGB2HSV)
 
-    best_color = "unknown"
-    best_count = 0
-    best_center = None
     counts = {}
+    centers = {}
 
     for color_name, ranges in _COLOR_RANGES.items():
         mask = np.zeros(roi_hsv.shape[:2], dtype=np.uint8)
@@ -126,21 +182,26 @@ def classify_balloon_color(
         count = int(np.count_nonzero(mask))
         counts[color_name] = count
 
-        if count > best_count and count >= _MIN_PIXEL_COUNT:
-            best_count = count
-            best_color = color_name
-
+        if count >= _MIN_PIXEL_COUNT:
             coords = np.column_stack(np.where(mask > 0))
             if len(coords) > 0:
                 cy_roi, cx_roi = np.mean(coords, axis=0).astype(int)
-                best_center = (cx_roi + x1, cy_roi + y1)
+                centers[color_name] = (cx_roi + x1, cy_roi + y1)
 
     rospy.loginfo_throttle(2.0,
         f"[ColorClassify] red={counts.get('red',0)} "
-        f"blue={counts.get('blue',0)} purple={counts.get('purple',0)} "
-        f"-> {best_color}")
+        f"blue={counts.get('blue',0)} purple={counts.get('purple',0)}")
 
-    return best_color, best_center
+    # 前两名比较：差距不足判暧昧，避免色相边界处标签帧间翻转
+    ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+    best_color, best_count = ranked[0]
+    second_count = ranked[1][1] if len(ranked) > 1 else 0
+
+    if best_count < _MIN_PIXEL_COUNT:
+        return "unknown", None
+    if best_count < _COLOR_MARGIN * second_count:
+        return "ambiguous", centers.get(best_color)
+    return best_color, centers.get(best_color)
 
 
 def _ros_image_to_numpy(msg: Image) -> np.ndarray:
@@ -244,6 +305,8 @@ class ObjectDetectionColorNode:
         self.show_visualization = rospy.get_param('/object_detection/visualization/show_window', False)
         self._first_image_received = False
         self._cached_balloon_centers = {}
+        self._cached_display_labels = {}  # balloon_idx -> 稳定后的类名（可视化与发布一致）
+        self._color_stabilizer = _BalloonColorStabilizer()
 
         # 准备图像保存目录
         if config.save_images:
@@ -331,6 +394,8 @@ class ObjectDetectionColorNode:
         import time
         start_time = time.time()
         self._cached_balloon_centers.clear()
+        self._cached_display_labels.clear()
+        self._color_stabilizer.end_frame()  # 轨迹随帧老化，长期未匹配的丢弃
 
         if not self._first_image_received:
             rospy.loginfo(f"Received first image! Size: {msg.width}x{msg.height}")
@@ -388,18 +453,10 @@ class ObjectDetectionColorNode:
             obj.score = float(conf)
             obj.header = header
 
-            # ===== 关键改动：balloon 类别 → 颜色分类 =====
+            # ===== balloon 类别 → 颜色分类 + 跨帧稳定 =====
             # 模型类别可能是 "balloon" 或 "red_balloon" 等，只要包含 balloon 就做颜色分类
             if "balloon" in obj.class_name:
                 color, center = classify_balloon_color(image_bgr, bbox, self.config.is_simulation)
-
-                # 用颜色后缀替换类名
-                if color != "unknown":
-                    obj.class_name = color + "_balloon"
-                    rospy.logdebug("Balloon color: %s", color)
-                else:
-                    # 颜色无法判断，保留通用名
-                    rospy.logwarn_throttle(5.0, "Cannot classify balloon color, keeping 'balloon'")
 
                 # 用颜色区域质心作为中心点（比 bbox 中心更精确）
                 if center is not None:
@@ -409,7 +466,20 @@ class ObjectDetectionColorNode:
                     obj.center_x = (bbox[0] + bbox[2]) // 2
                     obj.center_y = (bbox[1] + bbox[3]) // 2
 
-                self._cached_balloon_centers[len(objects_msg.objects)] = (obj.center_x, obj.center_y)
+                # 跨帧投票稳定：抑制色相边界处的单帧误分类
+                # （否则下游按类名匹配的跟踪器会丢目标或锁定错误气球）
+                stable_color = self._color_stabilizer.update(obj.center_x, obj.center_y, color)
+                if stable_color != "unknown":
+                    obj.class_name = stable_color + "_balloon"
+                    rospy.logdebug("Balloon color(stabilized): %s", stable_color)
+                else:
+                    # 颜色无法判断，保留通用名
+                    rospy.logwarn_throttle(5.0, "Cannot classify balloon color, keeping 'balloon'")
+
+                # 按气球序号缓存（与 _visualize 的 balloon_idx 一致）
+                balloon_idx = len(self._cached_balloon_centers)
+                self._cached_balloon_centers[balloon_idx] = (obj.center_x, obj.center_y)
+                self._cached_display_labels[balloon_idx] = obj.class_name
             else:
                 # 非 balloon 目标，使用 bbox 中心
                 obj.center_x = (bbox[0] + bbox[2]) // 2
@@ -442,14 +512,14 @@ class ObjectDetectionColorNode:
 
                 label = self._get_class_name(cls_id)
 
-                # 对 balloon 重新做颜色分类以获取带颜色的标签（用于可视化）
+                # balloon 的可视化标签使用与发布一致的稳定后类名
+                # （在 _process_detections 中按 balloon_idx 缓存）
                 display_label = label
                 vis_color = None
                 if "balloon" in label:
-                    bbox = (int(x1), int(y1), int(x2), int(y2))
-                    color, _ = classify_balloon_color(image, bbox, self.config.is_simulation)
-                    if color != "unknown":
-                        display_label = color + "_balloon"
+                    cached = self._cached_display_labels.get(balloon_idx)
+                    if cached:
+                        display_label = cached
                         vis_color = color_map.get(display_label)
 
                 # 绘制检测框

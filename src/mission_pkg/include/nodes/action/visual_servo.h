@@ -54,6 +54,7 @@ private:
     double forward_velocity_;
     double sprint_velocity_;
     double sprint_time_;
+    double hit_area_ratio_;          // 冲刺阶段判定"已接触"的面积占比（达到即收油刹车）
     double post_hit_brake_velocity_;
     double post_hit_brake_time_;
     double post_hit_settle_time_;
@@ -61,6 +62,7 @@ private:
     double data_timeout_;
     double approach_area_threshold_;
     double center_tolerance_;
+    double center_exit_factor_;      // 居中判定的退出放大系数（迟滞），防止 APPROACHING/ALIGN 来回跳变
 
     // 目标丢失后的主动恢复参数
     double recovery_delay_;            // 丢失多久后进入恢复 (s)
@@ -73,12 +75,13 @@ private:
     double prev_err_x_, prev_err_y_;
     ros::Time prev_time_;
 
-    static constexpr int ALIGN_STABLE_FRAMES_REQUIRED = 5;
+    static constexpr int ALIGN_STABLE_FRAMES_REQUIRED = 3;
 
     void updateTargetData();
     bool isTargetLost();
     double targetAge() const;
-    bool isCentered() const;
+    // factor > 1 时按放大的容差判定（用于退出条件，形成迟滞）
+    bool isCentered(double factor = 1.0) const;
     NodeStatus startPostHitBrake(const std::string& reason);
 
     // 目标丢失恢复

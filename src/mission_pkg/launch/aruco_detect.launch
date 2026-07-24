@@ -6,12 +6,25 @@
     <arg name="save_dir"    default="" />
     <!-- mock_id: >= 0 时启用 Mock 模式，开启即发布该 ID（-1 = 真实检测）-->
     <arg name="mock_id"     default="-1" />
-    
+    <!-- 多帧投票参数：同一 ID 出现 consensus_frames 次才发布 -->
+    <arg name="consensus_frames" default="3" />
+    <arg name="buffer_size"      default="8" />
+    <!-- QR 检测双保险：ArUco 失败时尝试 cv2.QRCodeDetector -->
+    <arg name="qr_fallback"      default="true" />
+    <arg name="use_clahe"        default="true" />
+    <!-- 可选：只接受指定 ID 白名单，例如 35。留空则接受所有 ID -->
+    <arg name="valid_ids"        default="" />
+
     <node pkg="mission_pkg" type="aruco_detect_node.py" name="aruco_detect_node" output="screen">
-        <param name="image_topic"   value="$(arg image_topic)" />
-        <param name="dictionary_id" value="16" />  <!-- DICT_ARUCO_ORIGINAL(16), formerly DICT_6X6_250(10) -->
-        <param name="show_debug"    value="$(arg show_debug)" />
-        <param name="save_dir"      value="$(arg save_dir)" />
-        <param name="enabled_default" value="false" />  <!-- default off, call /aruco/enable to start -->
+        <param name="image_topic"      value="$(arg image_topic)" />
+        <param name="dictionary_id"    value="16" />  <!-- DICT_ARUCO_ORIGINAL(16), formerly DICT_6X6_250(10) -->
+        <param name="show_debug"       value="$(arg show_debug)" />
+        <param name="save_dir"         value="$(arg save_dir)" />
+        <param name="enabled_default"  value="false" />  <!-- default off, call /aruco/enable to start -->
+        <param name="consensus_frames" value="$(arg consensus_frames)" />
+        <param name="buffer_size"      value="$(arg buffer_size)" />
+        <param name="qr_fallback"      value="$(arg qr_fallback)" />
+        <param name="use_clahe"        value="$(arg use_clahe)" />
+        <rosparam param="valid_ids" subst_value="True">$(arg valid_ids)</rosparam>
     </node>
 </launch>
