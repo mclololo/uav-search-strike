@@ -66,11 +66,16 @@ NodeStatus TargetDetectorBase::onRunning() {
 }
 
 bool TargetDetectorBase::findTargetInObjects(const common_msgs::Objects& msg, common_msgs::Obj& out_obj) {
+    // 同类目标取置信度最高者：YOLO 输出列表顺序在帧间不稳定，
+    // 取第一个匹配会导致多个同类目标（如两个气球）之间来回切换
+    double best_score = confidence_threshold;
+    bool found = false;
     for (const auto& obj : msg.objects) {
-        if (obj.class_name == target_class && obj.score >= confidence_threshold) {
+        if (obj.class_name == target_class && obj.score >= best_score) {
             out_obj = obj;
-            return true;
+            best_score = obj.score;
+            found = true;
         }
     }
-    return false;
+    return found;
 }

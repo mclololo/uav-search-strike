@@ -106,9 +106,11 @@
     <param name="visual_servo/k_p_vz"                  value="0.015" type="double"/>
     <param name="visual_servo/k_d_vz"                  value="0.006" type="double"/>
     <param name="visual_servo/approach_area_threshold"  value="0.035"  type="double"/>
-    <param name="visual_servo/forward_velocity"         value="0.6"   type="double"/>
-    <param name="visual_servo/sprint_velocity"          value="0.85"   type="double"/>
-    <param name="visual_servo/sprint_time"              value="0.55"  type="double"/>
+    <param name="visual_servo/forward_velocity"         value="1.0"   type="double"/>
+    <param name="visual_servo/sprint_velocity"          value="1.2"   type="double"/>
+    <param name="visual_servo/sprint_time"              value="1.0"   type="double"/>
+    <param name="visual_servo/hit_area_ratio"           value="0.35"  type="double"/>
+    <param name="visual_servo/center_exit_factor"       value="1.5"   type="double"/>
     <param name="visual_servo/post_hit_brake_velocity"  value="0.35"  type="double"/>
     <param name="visual_servo/post_hit_brake_time"      value="0.35"  type="double"/>
     <param name="visual_servo/post_hit_settle_time"     value="0.45"  type="double"/>
@@ -120,7 +122,7 @@
     <param name="visual_servo/recovery_yaw_rate"         value="0.5"   type="double"/>
     <param name="visual_servo/recovery_total_timeout"    value="3.0"   type="double"/>
     <param name="balloon_detection/confidence_threshold" value="0.60" type="double"/>
-    <param name="target_tracker/lost_target_grace_time" value="0.15" type="double"/>
+    <param name="target_tracker/lost_target_grace_time" value="0.4" type="double"/>
 
     <!-- ============================================ -->
     <!-- 打击前主动扫描参数                            -->

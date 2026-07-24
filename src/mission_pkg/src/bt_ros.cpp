@@ -335,9 +335,11 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_k_p_vz   = std::to_string(getDbl("visual_servo/k_p_vz", 0.01));
         std::string vs_k_d_vz   = std::to_string(getDbl("visual_servo/k_d_vz", 0.006));
         std::string vs_area_th  = std::to_string(getDbl("visual_servo/approach_area_threshold", 0.06));
-        std::string vs_fwd_vel  = std::to_string(getDbl("visual_servo/forward_velocity", 0.9));
-        std::string vs_sprint_v = std::to_string(getDbl("visual_servo/sprint_velocity", 0.85));
-        std::string vs_sprint_t = std::to_string(getDbl("visual_servo/sprint_time", 0.55));
+        std::string vs_fwd_vel  = std::to_string(getDbl("visual_servo/forward_velocity", 1.0));
+        std::string vs_sprint_v = std::to_string(getDbl("visual_servo/sprint_velocity", 1.2));
+        std::string vs_sprint_t = std::to_string(getDbl("visual_servo/sprint_time", 1.0));
+        std::string vs_hit_area = std::to_string(getDbl("visual_servo/hit_area_ratio", 0.35));
+        std::string vs_center_exit = std::to_string(getDbl("visual_servo/center_exit_factor", 1.5));
         std::string vs_brake_v  = std::to_string(getDbl("visual_servo/post_hit_brake_velocity", 0.35));
         std::string vs_brake_t  = std::to_string(getDbl("visual_servo/post_hit_brake_time", 0.35));
         std::string vs_settle_t = std::to_string(getDbl("visual_servo/post_hit_settle_time", 0.45));
@@ -384,6 +386,7 @@ std::string commandToXmlNode(const std::string& command) {
             "k_p_vz=\"" + vs_k_p_vz + "\" k_d_vz=\"" + vs_k_d_vz + "\" "
             "approach_area_threshold=\"" + vs_area_th + "\" "
             "forward_velocity=\"" + vs_fwd_vel + "\" sprint_velocity=\"" + vs_sprint_v + "\" sprint_time=\"" + vs_sprint_t + "\" "
+            "hit_area_ratio=\"" + vs_hit_area + "\" center_exit_factor=\"" + vs_center_exit + "\" "
             "post_hit_brake_velocity=\"" + vs_brake_v + "\" post_hit_brake_time=\"" + vs_brake_t + "\" "
             "data_timeout=\"" + vs_data_timeout + "\" "
             "recovery_delay=\"" + vs_recovery_delay + "\" recovery_backoff_velocity=\"" + vs_recovery_backoff_v + "\" "
