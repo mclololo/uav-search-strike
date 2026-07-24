@@ -227,6 +227,11 @@ std::string commandToXmlNode(const std::string& command) {
         if (!nh.getParam(key, val)) val = def;
         return val;
     };
+    auto getBool = [&](const std::string& key, bool def) -> bool {
+        bool val;
+        if (!nh.getParam(key, val)) val = def;
+        return val;
+    };
 
     // ---- takeoff ----
     if (cmd == "takeoff") {
@@ -318,10 +323,12 @@ std::string commandToXmlNode(const std::string& command) {
         std::string param_prefix = "balloon_zone_" + zone;
         std::string approach_pos = getStr(param_prefix + "/approach_pos", "5.3;1.0;0.7");
         std::string goto_pos = getStr(param_prefix + "/goal", "0.0;-0.8;0.5");
-        std::string post_hit_climb_pos = getStr(param_prefix + "/post_hit_climb_pos", approach_pos);
         double yaw_val = getDbl(param_prefix + "/yaw", -1.570796);
         std::string yaw = std::to_string(yaw_val);
         std::string balloon_name = color + "_balloon";
+        double default_hit_offset = getDbl("visual_servo/hit_offset_x", 45.0);
+        std::string vs_hit_offset_x = std::to_string(getDbl(param_prefix + "/hit_offset_x", default_hit_offset));
+        std::string vs_hit_offset_y = std::to_string(getDbl(param_prefix + "/hit_offset_y", getDbl("visual_servo/hit_offset_y", 0.0)));
         
         double scan_yaw_rate = getDbl("balloon_scan/yaw_rate", 0.35);
         double scan_timeout = getDbl("balloon_scan/timeout", 8.0);
@@ -338,11 +345,16 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_fwd_vel  = std::to_string(getDbl("visual_servo/forward_velocity", 1.0));
         std::string vs_sprint_v = std::to_string(getDbl("visual_servo/sprint_velocity", 1.2));
         std::string vs_sprint_t = std::to_string(getDbl("visual_servo/sprint_time", 1.0));
-        std::string vs_hit_area = std::to_string(getDbl("visual_servo/hit_area_ratio", 0.35));
-        std::string vs_center_exit = std::to_string(getDbl("visual_servo/center_exit_factor", 1.5));
+        std::string vs_sprint_lift = std::to_string(getDbl("visual_servo/sprint_lift_velocity", 0.12));
+        std::string vs_sprint_lock = getBool("visual_servo/sprint_lock_visual_correction", true) ? "true" : "false";
         std::string vs_brake_v  = std::to_string(getDbl("visual_servo/post_hit_brake_velocity", 0.35));
         std::string vs_brake_t  = std::to_string(getDbl("visual_servo/post_hit_brake_time", 0.35));
+        std::string vs_lift_h = std::to_string(getDbl("visual_servo/post_hit_lift_height", 0.7));
+        std::string vs_lift_t = std::to_string(getDbl("visual_servo/post_hit_lift_time", 0.25));
+        std::string vs_lift_timeout = std::to_string(getDbl("visual_servo/post_hit_lift_timeout", 1.0));
+        std::string vs_lift_tol = std::to_string(getDbl("visual_servo/post_hit_lift_tolerance", 0.12));
         std::string vs_settle_t = std::to_string(getDbl("visual_servo/post_hit_settle_time", 0.45));
+        std::string vs_success_area = std::to_string(getDbl("visual_servo/post_hit_success_area_ratio", 0.025));
         std::string vs_data_timeout = std::to_string(getDbl("visual_servo/data_timeout", 1.0));
         std::string tracker_grace_time = std::to_string(getDbl("target_tracker/lost_target_grace_time", 0.8));
         std::string scan_phase_duration = std::to_string(getDbl("balloon_scan/phase_duration", 2.5));
@@ -364,8 +376,10 @@ std::string commandToXmlNode(const std::string& command) {
         return
             "      <!-- 规划飞到气球打击区域" + zone + " -->\n"
             "      <PlanningControl goal=\"" + approach_pos + "\"/>\n"
-            "      <!-- 转向朝向" + zone + "区气球(" + color + ") -->\n"
-            "      <GoTo goal=\"" + goto_pos + "\" yaw=\"" + yaw + "\"/>\n"
+            "      <!-- 规划到" + zone + "区气球(" + color + ")打击准备点 -->\n"
+            "      <PlanningControl goal=\"" + goto_pos + "\"/>\n"
+            "      <!-- 原地转向朝向" + zone + "区气球(" + color + ") -->\n"
+            "      <GoTo yaw=\"" + yaw + "\"/>\n"
             "      <!-- 主动扫描+跟踪，支持丢失后重试 -->\n"
             "      <RetryUntilSuccessful num_attempts=\"" + std::to_string(retry_attempts) + "\">\n"
             "        <Sequence name=\"AcquireAndHit\">\n"
@@ -386,8 +400,12 @@ std::string commandToXmlNode(const std::string& command) {
             "k_p_vz=\"" + vs_k_p_vz + "\" k_d_vz=\"" + vs_k_d_vz + "\" "
             "approach_area_threshold=\"" + vs_area_th + "\" "
             "forward_velocity=\"" + vs_fwd_vel + "\" sprint_velocity=\"" + vs_sprint_v + "\" sprint_time=\"" + vs_sprint_t + "\" "
-            "hit_area_ratio=\"" + vs_hit_area + "\" center_exit_factor=\"" + vs_center_exit + "\" "
+            "hit_offset_x=\"" + vs_hit_offset_x + "\" hit_offset_y=\"" + vs_hit_offset_y + "\" "
+            "sprint_lift_velocity=\"" + vs_sprint_lift + "\" sprint_lock_visual_correction=\"" + vs_sprint_lock + "\" "
             "post_hit_brake_velocity=\"" + vs_brake_v + "\" post_hit_brake_time=\"" + vs_brake_t + "\" "
+            "post_hit_lift_height=\"" + vs_lift_h + "\" post_hit_lift_time=\"" + vs_lift_t + "\" "
+            "post_hit_lift_timeout=\"" + vs_lift_timeout + "\" post_hit_lift_tolerance=\"" + vs_lift_tol + "\" "
+            "post_hit_settle_time=\"" + vs_settle_t + "\" post_hit_success_area_ratio=\"" + vs_success_area + "\" "
             "data_timeout=\"" + vs_data_timeout + "\" "
             "recovery_delay=\"" + vs_recovery_delay + "\" recovery_backoff_velocity=\"" + vs_recovery_backoff_v + "\" "
             "recovery_backoff_time=\"" + vs_recovery_backoff_t + "\" recovery_yaw_rate=\"" + vs_recovery_yaw + "\" "
@@ -396,9 +414,7 @@ std::string commandToXmlNode(const std::string& command) {
             "            </Timeout>\n"
             "          </ForceSuccess>\n"
             "        </Sequence>\n"
-            "      </RetryUntilSuccessful>\n"
-            "      <!-- 撞击后先上升脱离气球区域 -->\n"
-            "      <GoTo goal=\"" + post_hit_climb_pos + "\" yaw=\"" + yaw + "\"/>\n";
+            "      </RetryUntilSuccessful>\n";
     }
     
     // ---- land ----
