@@ -419,12 +419,12 @@ std::string commandToXmlNode(const std::string& command) {
     
     // ---- land ----
     if (cmd == "land") {
-        std::string return_high_pos = getStr("land/return_high_pos", "0.0;0.0;1.2");
+        std::string return_high_pos = getStr("land/return_high_pos", "0.0;0.0;1.4");
         std::string return_low_pos = getStr("land/return_low_pos", "0.0;0.0;0.5");
         double ret_yaw = getDbl("land/return_yaw", 0.0);
         return
             "      <!-- 规划返航到起点上方，避免撞球后低空直线返回 -->\n"
-            "      <PlanningControl goal=\"" + return_high_pos + "\"/>\n"
+            "      <PlanningControl goal=\"" + return_high_pos + "\" control_yaw=\"true\"/>\n"
             "      <GoTo goal=\"" + return_low_pos + "\" yaw=\"" + std::to_string(ret_yaw) + "\"/>\n"
             "      <Land/>\n";
     }
