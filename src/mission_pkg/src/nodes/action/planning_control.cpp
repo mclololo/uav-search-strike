@@ -151,9 +151,18 @@ NodeStatus PlanningControl::onRunning() {
 
     if (!has_planner_cmd) return NodeStatus::RUNNING;
 
-    // Ego-planner 输出经过 publishPosition 做 ENU→NED 转换
+    // Ego-planner 输出经过 publishPosition 做 ENU→NED 转换。
+    // Planner 自带 yaw 在当前仿真坐标转换下可能跳变，control_yaw=true 时
+    // 改为机头朝向最终目标点，保证返航阶段深度相机大致看向飞行方向。
     geometry_msgs::Point ego_pos = last_planner_cmd.position;
-    double ego_yaw = control_yaw ? last_planner_cmd.yaw : initial_yaw_;
+    double ego_yaw = initial_yaw_;
+    if (control_yaw) {
+        double dx = target_pos_.x - fcu_odom_ptr->pose.pose.position.x;
+        double dy = target_pos_.y - fcu_odom_ptr->pose.pose.position.y;
+        if (std::hypot(dx, dy) > 0.2) {
+            ego_yaw = std::atan2(dy, dx);
+        }
+    }
     
     publishPosition(ego_pos, ego_yaw);
     

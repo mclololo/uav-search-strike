@@ -3,6 +3,7 @@
  * @brief      Visual Servo 行为树节点 - 三阶段控制（body系 VX+VZ+yaw_rate）
  ******************************************************************************/
 #include "nodes/action/visual_servo.h"
+#include "utils/pose_utils.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -29,20 +30,32 @@ PortsList VisualServo::providedPorts() {
              InputPort<double>("k_d_vz", 0.006, "垂直速度 D 增益"),
              InputPort<double>("max_vz", 0.3, "最大垂直速度 (m/s)"),
              InputPort<double>("deadzone_vz", 10.0, "垂直死区 (pixel)"),
-             InputPort<double>("forward_velocity", 1.0, "逼近阶段前进速度 (m/s)"),
-             InputPort<double>("sprint_velocity", 1.2, "冲刺速度 (m/s)"),
-             InputPort<double>("sprint_time", 1.0, "冲刺最大持续时间 (s)，安全上限"),
-             InputPort<double>("hit_area_ratio", 0.35,
-                               "冲刺阶段判定接触的面积占比：目标占画面超过此值认为已撞到，立即收油刹车"),
+             InputPort<double>("forward_velocity", 0.9, "逼近阶段前进速度 (m/s)"),
+             InputPort<double>("sprint_velocity", 0.85, "冲刺速度 (m/s)"),
+             InputPort<double>("sprint_time", 0.55, "冲刺持续时间 (s)"),
+             InputPort<double>("hit_offset_x", 45.0, "侧桨打击水平像素偏置 (pixel)"),
+             InputPort<double>("hit_offset_y", 0.0, "侧桨打击垂直像素偏置 (pixel)"),
+             InputPort<double>("side_hit_offset_px", 0.0, "兼容当前 XML，499e9f8 逻辑使用 hit_offset_x"),
+             InputPort<double>("hit_area_ratio", 0.35, "兼容当前 XML，499e9f8 逻辑不使用"),
+             InputPort<double>("center_exit_factor", 1.5, "兼容当前 XML，499e9f8 逻辑不使用"),
+             InputPort<double>("post_hit_climb_height", 0.7, "兼容当前 XML，499e9f8 逻辑使用 post_hit_lift_height"),
+             InputPort<double>("post_hit_climb_velocity", 0.9, "兼容当前 XML，499e9f8 逻辑不使用"),
+             InputPort<double>("post_hit_climb_timeout", 1.2, "兼容当前 XML，499e9f8 逻辑使用 post_hit_lift_timeout"),
+             InputPort<double>("safety_predict_time", 0.35, "兼容当前 XML，499e9f8 逻辑不使用"),
+             InputPort<double>("safety_margin", 0.2, "兼容当前 XML，499e9f8 逻辑不使用"),
+             InputPort<double>("sprint_lift_velocity", 0.12, "冲刺阶段轻微上扬速度 (m/s)"),
+             InputPort<bool>("sprint_lock_visual_correction", true, "冲刺阶段锁定视觉修正"),
              InputPort<double>("post_hit_brake_velocity", 0.35, "撞击后反向刹车速度 (m/s)"),
              InputPort<double>("post_hit_brake_time", 0.35, "撞击后反向刹车时间 (s)"),
+             InputPort<double>("post_hit_lift_height", 0.35, "撞击后抬升高度 (m)"),
+             InputPort<double>("post_hit_lift_time", 0.45, "撞击后抬升目标斜坡时间 (s)"),
+             InputPort<double>("post_hit_lift_timeout", 1.0, "撞击后抬升最大等待时间 (s)"),
+             InputPort<double>("post_hit_lift_tolerance", 0.12, "撞击后抬升到位高度容差 (m)"),
              InputPort<double>("post_hit_settle_time", 0.45, "撞击后悬停稳定时间 (s)"),
              InputPort<double>("data_timeout", 0.3, "数据超时 (s)"),
              InputPort<double>("approach_area_threshold", 0.06, "触发冲刺的面积占比"),
+             InputPort<double>("post_hit_success_area_ratio", 0.025, "打击后目标丢失判为成功的面积占比"),
              InputPort<double>("center_tolerance", 0.15, "对齐判定区域比例"),
-             InputPort<double>("center_exit_factor", 1.5,
-                               "居中退出迟滞系数：APPROACHING 中误差超过 tolerance×factor 才退回 ALIGN，"
-                               "防止对齐边界抖动导致前进速度 0↔max 来回切换"),
              // 目标丢失后的主动恢复参数
              InputPort<double>("recovery_delay", 0.15, "丢失多久后进入恢复 (s)"),
              InputPort<double>("recovery_backoff_velocity", -0.25, "恢复阶段后退速度 (m/s, 负值)"),
@@ -65,15 +78,22 @@ NodeStatus VisualServo::onStart() {
     forward_velocity_ = getInput<double>("forward_velocity").value();
     sprint_velocity_ = getInput<double>("sprint_velocity").value();
     sprint_time_ = getInput<double>("sprint_time").value();
-    hit_area_ratio_ = getInput<double>("hit_area_ratio").value();
+    hit_offset_x_ = getInput<double>("hit_offset_x").value();
+    hit_offset_y_ = getInput<double>("hit_offset_y").value();
+    sprint_lift_velocity_ = getInput<double>("sprint_lift_velocity").value();
+    sprint_lock_visual_correction_ = getInput<bool>("sprint_lock_visual_correction").value();
     post_hit_brake_velocity_ = getInput<double>("post_hit_brake_velocity").value();
     post_hit_brake_time_ = getInput<double>("post_hit_brake_time").value();
+    post_hit_lift_height_ = getInput<double>("post_hit_lift_height").value();
+    post_hit_lift_time_ = getInput<double>("post_hit_lift_time").value();
+    post_hit_lift_timeout_ = getInput<double>("post_hit_lift_timeout").value();
+    post_hit_lift_tolerance_ = getInput<double>("post_hit_lift_tolerance").value();
     post_hit_settle_time_ = getInput<double>("post_hit_settle_time").value();
 
     data_timeout_ = getInput<double>("data_timeout").value();
     approach_area_threshold_ = getInput<double>("approach_area_threshold").value();
+    post_hit_success_area_ratio_ = getInput<double>("post_hit_success_area_ratio").value();
     center_tolerance_ = getInput<double>("center_tolerance").value();
-    center_exit_factor_ = getInput<double>("center_exit_factor").value();
 
     recovery_delay_ = getInput<double>("recovery_delay").value();
     recovery_backoff_velocity_ = getInput<double>("recovery_backoff_velocity").value();
@@ -92,10 +112,9 @@ NodeStatus VisualServo::onStart() {
     updateTargetData();
 
     ROS_INFO("[%s]: Visual Servo Started (VX+VZ+yaw_rate)", name().c_str());
-    ROS_INFO("[%s]: forward_vel=%.2f sprint_vel=%.2f sprint_time=%.2f hit_area=%.2f brake=%.2fm/s %.2fs settle=%.2fs area_thresh=%.3f center_exit=x%.2f",
-             name().c_str(), forward_velocity_, sprint_velocity_, sprint_time_, hit_area_ratio_,
-             post_hit_brake_velocity_, post_hit_brake_time_, post_hit_settle_time_, approach_area_threshold_,
-             center_exit_factor_);
+    ROS_INFO("[%s]: forward_vel=%.2f sprint_vel=%.2f sprint_time=%.2f offset=(%.1f,%.1f) sprint_lift=%.2f brake=%.2fm/s %.2fs lift=%.2fm %.2fs settle=%.2fs area_thresh=%.3f",
+             name().c_str(), forward_velocity_, sprint_velocity_, sprint_time_,
+             hit_offset_x_, hit_offset_y_, sprint_lift_velocity_, post_hit_brake_velocity_, post_hit_brake_time_, post_hit_lift_height_, post_hit_lift_time_, post_hit_settle_time_, approach_area_threshold_);
     ROS_INFO("[%s]: recovery delay=%.2fs backoff=%.2fm/s %.2fs yaw=%.2f timeout=%.2fs",
              name().c_str(), recovery_delay_, recovery_backoff_velocity_, recovery_backoff_time_,
              recovery_yaw_rate_, recovery_total_timeout_);
@@ -110,6 +129,28 @@ NodeStatus VisualServo::onRunning() {
     ros::Time now = ros::Time::now();
     double dt = (now - prev_time_).toSec();
     if (dt < 0.001) dt = 0.001;
+
+    if (current_state_ == POST_HIT_LIFTING) {
+        double lift_dt = (ros::Time::now() - lift_start_time_).toSec();
+        double lift_time = std::max(0.05, post_hit_lift_time_);
+        double ratio = std::clamp(lift_dt / lift_time, 0.0, 1.0);
+        geometry_msgs::Point lift_target = post_hit_lift_start_pos_;
+        lift_target.z = post_hit_lift_start_pos_.z + post_hit_lift_height_ * ratio;
+        double current_yaw = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
+        publishPosition(lift_target, current_yaw);
+
+        double current_z = fcu_odom_ptr->pose.pose.position.z;
+        bool height_reached = std::abs(current_z - post_hit_lift_target_z_) <= post_hit_lift_tolerance_;
+        bool lift_timeout = lift_dt >= std::max(lift_time, post_hit_lift_timeout_);
+        if (height_reached || lift_timeout) {
+            current_state_ = SETTLING;
+            settle_start_time_ = ros::Time::now();
+            publishDebugEvent("vs_state", std::string("POST_HIT_LIFTING -> SETTLING reached=") +
+                              (height_reached ? "1" : "0") + " z=" + std::to_string(current_z) +
+                              " target_z=" + std::to_string(post_hit_lift_target_z_));
+        }
+        return NodeStatus::RUNNING;
+    }
 
     if (current_state_ == BRAKING) {
         double brake_dt = (ros::Time::now() - brake_start_time_).toSec();
@@ -149,11 +190,13 @@ NodeStatus VisualServo::onRunning() {
         }
     }
 
-    // SPRINTING 是已对准后的盲冲刺（撞到为止，最长 sprint_time），末端贴近气球时
-    // 检测易丢失（气球过大超出画面/YOLO 丢检），此时中断冲刺等于放弃打击，
-    // 因此冲刺阶段不响应目标丢失，沿最后对准方向完成冲刺。
-    if (!target_now_valid && current_state_ != SPRINTING) {
+    if (!target_now_valid) {
         double age = targetAge();
+        if (current_state_ == SPRINTING || max_area_ratio_ >= post_hit_success_area_ratio_) {
+            ROS_INFO("[%s]: Target lost after close approach, treating as hit success (max_area=%.3f).",
+                     name().c_str(), max_area_ratio_);
+            return startPostHitBrake("target lost after close approach");
+        }
         if (age >= recovery_delay_) {
             return startRecovery();
         }
@@ -166,8 +209,10 @@ NodeStatus VisualServo::onRunning() {
 
     double img_area = static_cast<double>(img_w_) * img_h_;
     double current_ratio = last_target_.area() / img_area;
-    double err_x = last_target_.center_x - img_cx_;
-    double err_y = last_target_.center_y - img_cy_;
+    double desired_cx = img_cx_ + hit_offset_x_;
+    double desired_cy = img_cy_ + hit_offset_y_;
+    double err_x = last_target_.center_x - desired_cx;
+    double err_y = last_target_.center_y - desired_cy;
 
     if (current_ratio > max_area_ratio_) {
         max_area_ratio_ = current_ratio;
@@ -195,10 +240,7 @@ NodeStatus VisualServo::onRunning() {
 
         case APPROACHING: {
             publishVelocityWithYawRate(forward_velocity_, 0, vz, yaw_rate);
-            // 退出判定使用放大的容差（迟滞）：只有明显偏离中心才退回 ALIGN。
-            // 若与进入条件共用同一阈值，对齐边界上的检测抖动/气球移动会让
-            // 前进速度在 0 和 max 之间来回切换，表现为追击中的突然加减速。
-            if (!isCentered(center_exit_factor_)) {
+            if (!isCentered()) {
                 current_state_ = ALIGN;
                 align_stable_frames_ = 0;
                 publishDebugEvent("vs_state", "APPROACHING -> ALIGN");
@@ -216,22 +258,16 @@ NodeStatus VisualServo::onRunning() {
 
         case SPRINTING: {
             double sprint_dt = (ros::Time::now() - sprint_start_time_).toSec();
-            // 接触判定优先看面积：气球占满画面一定比例即认为已撞上，立即收油。
-            // 纯定时冲刺的问题：触发冲刺时距气球约 0.5~0.7m，而同向移动的气球
-            // 会进一步降低接近速度，固定时长冲不完剩余距离 -> 未接触就刹车"收手"。
-            if (current_ratio >= hit_area_ratio_) {
-                ROS_INFO("[%s]: Hit! Area %.1f%% >= %.1f%% at t=%.2fs -> BRAKE", name().c_str(),
-                         current_ratio * 100, hit_area_ratio_ * 100, sprint_dt);
-                return startPostHitBrake("hit area reached");
-            }
-            // 时间上限只是安全兜底：检测丢失（气球出画/遮挡）时靠它终止盲冲
             if (sprint_dt >= sprint_time_) {
                 return startPostHitBrake("sprint finished");
             }
-            publishVelocityWithYawRate(sprint_velocity_, 0, vz, yaw_rate);
+            double sprint_yaw_rate = sprint_lock_visual_correction_ ? 0.0 : yaw_rate;
+            double sprint_vz = sprint_lock_visual_correction_ ? -sprint_lift_velocity_ : (vz - sprint_lift_velocity_);
+            publishVelocityWithYawRate(sprint_velocity_, 0, sprint_vz, sprint_yaw_rate);
             break;
         }
 
+        case POST_HIT_LIFTING:
         case BRAKING:
         case SETTLING:
             break;
@@ -296,18 +332,22 @@ double VisualServo::targetAge() const {
     return (ros::Time::now() - last_valid_detection_time_).toSec();
 }
 
-bool VisualServo::isCentered(double factor) const {
-    double err_x = last_target_.center_x - img_cx_;
-    double err_y = last_target_.center_y - img_cy_;
-    double tol_w = img_w_ * center_tolerance_ * factor;
-    double tol_h = img_h_ * center_tolerance_ * factor;
+bool VisualServo::isCentered() const {
+    double desired_cx = img_cx_ + hit_offset_x_;
+    double desired_cy = img_cy_ + hit_offset_y_;
+    double err_x = last_target_.center_x - desired_cx;
+    double err_y = last_target_.center_y - desired_cy;
+    double tol_w = img_w_ * center_tolerance_;
+    double tol_h = img_h_ * center_tolerance_;
     return std::abs(err_x) < tol_w && std::abs(err_y) < tol_h;
 }
 
 NodeStatus VisualServo::startPostHitBrake(const std::string& reason) {
-    brake_start_time_ = ros::Time::now();
-    current_state_ = BRAKING;
-    publishDebugEvent("vs_state", std::string("SPRINTING -> BRAKING | ") + reason);
+    lift_start_time_ = ros::Time::now();
+    post_hit_lift_start_pos_ = fcu_odom_ptr->pose.pose.position;
+    post_hit_lift_target_z_ = post_hit_lift_start_pos_.z + post_hit_lift_height_;
+    current_state_ = POST_HIT_LIFTING;
+    publishDebugEvent("vs_state", std::string("SPRINTING -> POST_HIT_LIFTING | ") + reason);
     return NodeStatus::RUNNING;
 }
 
