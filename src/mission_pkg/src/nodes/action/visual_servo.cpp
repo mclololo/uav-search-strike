@@ -134,10 +134,10 @@ NodeStatus VisualServo::onRunning() {
         double lift_dt = (ros::Time::now() - lift_start_time_).toSec();
         double lift_time = std::max(0.05, post_hit_lift_time_);
         double ratio = std::clamp(lift_dt / lift_time, 0.0, 1.0);
+        double smooth_ratio = ratio * ratio * (3.0 - 2.0 * ratio);
         geometry_msgs::Point lift_target = post_hit_lift_start_pos_;
-        lift_target.z = post_hit_lift_start_pos_.z + post_hit_lift_height_ * ratio;
-        double current_yaw = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
-        publishPosition(lift_target, current_yaw);
+        lift_target.z = post_hit_lift_start_pos_.z + post_hit_lift_height_ * smooth_ratio;
+        publishPosition(lift_target, post_hit_lift_yaw_);
 
         double current_z = fcu_odom_ptr->pose.pose.position.z;
         bool height_reached = std::abs(current_z - post_hit_lift_target_z_) <= post_hit_lift_tolerance_;
@@ -346,6 +346,7 @@ NodeStatus VisualServo::startPostHitBrake(const std::string& reason) {
     lift_start_time_ = ros::Time::now();
     post_hit_lift_start_pos_ = fcu_odom_ptr->pose.pose.position;
     post_hit_lift_target_z_ = post_hit_lift_start_pos_.z + post_hit_lift_height_;
+    post_hit_lift_yaw_ = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
     current_state_ = POST_HIT_LIFTING;
     publishDebugEvent("vs_state", std::string("SPRINTING -> POST_HIT_LIFTING | ") + reason);
     return NodeStatus::RUNNING;

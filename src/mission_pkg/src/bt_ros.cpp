@@ -287,20 +287,19 @@ std::string commandToXmlNode(const std::string& command) {
     if (cmd == "return_cross_frame") {
         std::string turn_pos     = getStr("return_cross_frame/turn_pos",   "-1.0;4.0;1.8");
         double      turn_yaw     = getDbl("return_cross_frame/turn_yaw",   3.14159);
-        std::string body_fwd     = getStr("return_cross_frame/body_forward", "0.2;0.0;0.0");
-        double      exit_yaw     = getDbl("return_cross_frame/exit_yaw",   0.0);
         double      offset_z     = getDbl("return_cross_frame/offset_z",   1.0);
+        double      exit_yaw     = getDbl("return_cross_frame/exit_yaw",   0.0);
         return
-            "      <!-- 旋转180度 -->\n"
-            "      <GoTo goal=\"" + turn_pos + "\" yaw=\"" + std::to_string(turn_yaw) + "\"/>\n"
+            "      <!-- 路径规划到转向点 -->\n"
+            "      <PlanningControl goal=\"" + turn_pos + "\"/>\n"
+            "      <!-- 原地旋转180度 -->\n"
+            "      <GoTo yaw=\"" + std::to_string(turn_yaw) + "\"/>\n"
             "      <!-- 规划返回穿框入口，避免直线撞柱 -->\n"
             "      <PlanningControl goal=\"{planning_end_pos}\"/>\n"
-            "      <!-- 反向穿越方框 -->\n"
+            "      <!-- 反向穿越方框，穿框后直接交给打击点路径规划 -->\n"
             "      <PlanningControl goal=\"{frame_center}\" offset_z=\"" + std::to_string(offset_z) + "\"/>\n"
-            "      <!-- 机体系前进 -->\n"
-            "      <GoTo goal=\"" + body_fwd + "\" frame=\"1\"/>\n"
-            "      <!-- 掉头朝向气球区域 -->\n"
-            "      <GoTo goal=\"" + body_fwd + "\" frame=\"1\" yaw=\"" + std::to_string(exit_yaw) + "\"/>\n";
+            "      <!-- 原地转回机头朝向气球区域，不额外做固定点前进 -->\n"
+            "      <GoTo yaw=\"" + std::to_string(exit_yaw) + "\"/>\n";
     }
     
     // ---- hit_balloon:颜色 ----
@@ -422,10 +421,15 @@ std::string commandToXmlNode(const std::string& command) {
         std::string return_high_pos = getStr("land/return_high_pos", "0.0;0.0;1.4");
         std::string return_low_pos = getStr("land/return_low_pos", "0.0;0.0;0.5");
         double ret_yaw = getDbl("land/return_yaw", 0.0);
+        double plan_yaw_rate = getDbl("land/planning_yaw_rate", 0.25);
+        double final_yaw_rate = getDbl("land/final_yaw_rate", 0.25);
         return
             "      <!-- 规划返航到起点上方，避免撞球后低空直线返回 -->\n"
-            "      <PlanningControl goal=\"" + return_high_pos + "\" control_yaw=\"true\"/>\n"
-            "      <GoTo goal=\"" + return_low_pos + "\" yaw=\"" + std::to_string(ret_yaw) + "\"/>\n"
+            "      <PlanningControl goal=\"" + return_high_pos + "\" control_yaw=\"true\" yaw_rate=\"" + std::to_string(plan_yaw_rate) + "\"/>\n"
+            "      <!-- 到起点上方后先原地平滑转到降落航向 -->\n"
+            "      <GoTo yaw=\"" + std::to_string(ret_yaw) + "\" yaw_rate=\"" + std::to_string(final_yaw_rate) + "\"/>\n"
+            "      <!-- 航向稳定后再下降到降落前低位点 -->\n"
+            "      <GoTo goal=\"" + return_low_pos + "\"/>\n"
             "      <Land/>\n";
     }
 

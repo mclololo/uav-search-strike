@@ -40,6 +40,7 @@ private:
     ros::Time settle_start_time_;
     geometry_msgs::Point post_hit_lift_start_pos_;
     double post_hit_lift_target_z_;
+    double post_hit_lift_yaw_;
     int align_stable_frames_;
 
     double img_cx_, img_cy_;
