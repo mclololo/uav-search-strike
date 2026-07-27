@@ -63,6 +63,8 @@
     <param name="land/return_high_pos" value="0.0;0.0;1.4" type="str"/> <!-- 规划返航到起点上方 -->
     <param name="land/return_low_pos"  value="0.0;0.0;0.5" type="str"/> <!-- 降落前低位点 -->
     <param name="land/return_yaw" value="0.0" type="double"/>         <!-- 降落前航向(rad) -->
+    <param name="land/planning_yaw_rate" value="0.25" type="double"/> <!-- 返航规划时机头转向速度(rad/s) -->
+    <param name="land/final_yaw_rate" value="0.25" type="double"/>    <!-- 降落前原地转向速度(rad/s) -->
 
     <!-- ============================================ -->
     <!-- 气球颜色→区域映射（比赛前根据实际配置修改）    -->
@@ -86,17 +88,17 @@
     <param name="balloon_zone_A/approach_pos" value="5.3;1.0;1.0"  type="str"/>
     <param name="balloon_zone_A/goal"         value="5.3;1.0;1.0"  type="str"/>
     <param name="balloon_zone_A/yaw"          value="1.5708"        type="double"/>
-    <param name="balloon_zone_A/hit_offset_x" value="50.0" type="double"/>
+    <param name="balloon_zone_A/hit_offset_x" value="45.0" type="double"/>
     <!-- B区 (紫色气球) -->
     <param name="balloon_zone_B/approach_pos" value="5.3;-2.0;0.7" type="str"/>
     <param name="balloon_zone_B/goal"         value="5.3;-2.0;0.7" type="str"/>
     <param name="balloon_zone_B/yaw"          value="3.14159"       type="double"/>
-    <param name="balloon_zone_B/hit_offset_x" value="-50.0" type="double"/>
+    <param name="balloon_zone_B/hit_offset_x" value="-45.0" type="double"/>
     <!-- C区 (蓝色气球) -->
     <param name="balloon_zone_C/approach_pos" value="5.3;1.0;0.7"  type="str"/>
     <param name="balloon_zone_C/goal"         value="5.3;1.0;0.7"  type="str"/>
     <param name="balloon_zone_C/yaw"          value="-1.5708"       type="double"/>
-    <param name="balloon_zone_C/hit_offset_x" value="-50.0" type="double"/>
+    <param name="balloon_zone_C/hit_offset_x" value="-45.0" type="double"/>
 
     <!-- ============================================ -->
     <!-- VisualServo 视觉伺服参数（与手调 XML 一致）     -->
@@ -117,7 +119,7 @@
     <param name="visual_servo/post_hit_brake_velocity"  value="0.35"  type="double"/>
     <param name="visual_servo/post_hit_brake_time"      value="0.35"  type="double"/>
     <param name="visual_servo/post_hit_lift_height"     value="0.9"   type="double"/>
-    <param name="visual_servo/post_hit_lift_time"       value="0.25"  type="double"/>
+    <param name="visual_servo/post_hit_lift_time"       value="0.45"  type="double"/>
     <param name="visual_servo/post_hit_lift_timeout"    value="1.0"   type="double"/>
     <param name="visual_servo/post_hit_lift_tolerance"  value="0.12"  type="double"/>
     <param name="visual_servo/post_hit_settle_time"     value="0.45"  type="double"/>

@@ -29,6 +29,9 @@ private:
     double offset_z;
     bool control_yaw;
     double initial_yaw_{0.0};  // Starting yaw when control_yaw is false
+    double yaw_rate_limit_{0.35};
+    double current_yaw_sp_{0.0};
+    ros::Time last_loop_time_;
     bool target_initialized;
 
     ros::Publisher planner_goal_pub;

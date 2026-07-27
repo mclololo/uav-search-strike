@@ -9,8 +9,17 @@
  ******************************************************************************/
 #include "nodes/action/planning_control.h"
 #include "utils/pose_utils.h"
+#include <algorithm>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+
+namespace {
+double normalizeYaw(double yaw) {
+    while (yaw > M_PI) yaw -= 2.0 * M_PI;
+    while (yaw < -M_PI) yaw += 2.0 * M_PI;
+    return yaw;
+}
+}
 
 PlanningControl::PlanningControl(const std::string& name, const NodeConfig& config)
     : DroneActionNode(name, config), has_planner_cmd(false) {
@@ -29,6 +38,7 @@ PortsList PlanningControl::providedPorts() {
              InputPort<double>("offset_z", 0.0, "相对于目标的Z轴偏移(随飞机航向)"),
              InputPort<double>("tolerance", "到达容差"),
              InputPort<bool>("control_yaw", false, "是否控制偏航角"),
+             InputPort<double>("yaw_rate", 0.35, "控制偏航时的最大偏航角速度(rad/s)"),
              OutputPort<Position3D>("final_position", "到达的最终位置(x;y;z)") };
 }
 
@@ -92,12 +102,15 @@ NodeStatus PlanningControl::onStart() {
 
     auto yaw_res = getInput<bool>("control_yaw");
     control_yaw = yaw_res.value();
-
-    ROS_INFO("[%s]: Initialized with offset_z=%.2f, tolerance=%.2f, control_yaw=%d",
-             name().c_str(), offset_z, tolerance, control_yaw);
+    yaw_rate_limit_ = getInput<double>("yaw_rate").value();
 
     // 捕获初始偏航角 (供 !control_yaw 使用)
     initial_yaw_ = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
+    current_yaw_sp_ = initial_yaw_;
+    last_loop_time_ = ros::Time::now();
+
+    ROS_INFO("[%s]: Initialized with offset_z=%.2f, tolerance=%.2f, control_yaw=%d, yaw_rate=%.2f",
+             name().c_str(), offset_z, tolerance, control_yaw, yaw_rate_limit_);
     
     // 尝试获取目标点
     auto goal_res = getInput<Position3D>("goal");
@@ -151,20 +164,50 @@ NodeStatus PlanningControl::onRunning() {
 
     if (!has_planner_cmd) return NodeStatus::RUNNING;
 
-    // Ego-planner 输出经过 publishPosition 做 ENU→NED 转换。
+    // Ego-planner 输出经过 ENU→NED 转换后直接给飞控。
     // Planner 自带 yaw 在当前仿真坐标转换下可能跳变，control_yaw=true 时
-    // 改为机头朝向最终目标点，保证返航阶段深度相机大致看向飞行方向。
+    // 改为机头平滑朝向最终目标点，保证返航阶段深度相机大致看向飞行方向。
     geometry_msgs::Point ego_pos = last_planner_cmd.position;
     double ego_yaw = initial_yaw_;
     if (control_yaw) {
+        ros::Time now = ros::Time::now();
+        double dt = (now - last_loop_time_).toSec();
+        last_loop_time_ = now;
+        if (dt < 0.001) dt = 0.001;
+
         double dx = target_pos_.x - fcu_odom_ptr->pose.pose.position.x;
         double dy = target_pos_.y - fcu_odom_ptr->pose.pose.position.y;
         if (std::hypot(dx, dy) > 0.2) {
-            ego_yaw = std::atan2(dy, dx);
+            double target_yaw = std::atan2(dy, dx);
+            double yaw_error = normalizeYaw(target_yaw - current_yaw_sp_);
+            double max_step = std::max(0.05, yaw_rate_limit_) * dt;
+            if (std::abs(yaw_error) <= max_step) {
+                current_yaw_sp_ = target_yaw;
+            } else {
+                current_yaw_sp_ = normalizeYaw(current_yaw_sp_ + std::copysign(max_step, yaw_error));
+            }
         }
+        ego_yaw = current_yaw_sp_;
     }
-    
-    publishPosition(ego_pos, ego_yaw);
+
+    mavros_msgs::PositionTarget cmd;
+    cmd.header.stamp = ros::Time::now();
+    cmd.header.frame_id = name();
+    cmd.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
+    cmd.type_mask = mavros_msgs::PositionTarget::IGNORE_YAW_RATE;
+
+    cmd.position.x = -ego_pos.y;
+    cmd.position.y = ego_pos.x;
+    cmd.position.z = ego_pos.z;
+    cmd.velocity.x = -last_planner_cmd.velocity.y;
+    cmd.velocity.y = last_planner_cmd.velocity.x;
+    cmd.velocity.z = last_planner_cmd.velocity.z;
+    cmd.acceleration_or_force.x = -last_planner_cmd.acceleration.y;
+    cmd.acceleration_or_force.y = last_planner_cmd.acceleration.x;
+    cmd.acceleration_or_force.z = last_planner_cmd.acceleration.z;
+    cmd.yaw = ego_yaw + M_PI / 2.0;
+
+    mct->updateCommand(cmd);
     
     return NodeStatus::RUNNING;
 }
