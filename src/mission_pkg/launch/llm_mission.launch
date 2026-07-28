@@ -30,6 +30,8 @@
     <param name="safety/y_max" value="3.0" type="double"/>
     <param name="safety/z_min" value="-0.1" type="double"/>
     <param name="safety/z_max" value="2.5" type="double"/>
+    <param name="safety/soft_wall_zone" value="0.6" type="double"/>
+    <param name="safety/soft_wall_margin" value="0.25" type="double"/>
 
     <!-- ============================================ -->
     <!-- 任务航点坐标配置 (ENU: x=东/右, y=北/前, z=上) -->
@@ -108,14 +110,20 @@
     <param name="visual_servo/k_p_vz"                  value="0.015" type="double"/>
     <param name="visual_servo/k_d_vz"                  value="0.006" type="double"/>
     <param name="visual_servo/approach_area_threshold"  value="0.035"  type="double"/>
+    <param name="visual_servo/strike_stable_time"        value="0.8"   type="double"/>
+    <param name="visual_servo/sprint_room_margin"        value="0.5"   type="double"/>
     <param name="visual_servo/post_hit_success_area_ratio" value="0.025" type="double"/>
-    <param name="visual_servo/forward_velocity"         value="0.6"   type="double"/>
+    <param name="visual_servo/forward_velocity"         value="1.0"   type="double"/>
     <param name="visual_servo/sprint_velocity"          value="0.85"   type="double"/>
-    <param name="visual_servo/sprint_time"              value="0.55"  type="double"/>
+    <param name="visual_servo/sprint_time"              value="1.0"   type="double"/>
+    <param name="visual_servo/sprint_range_margin"      value="1.15"  type="double"/>
+    <param name="visual_servo/sprint_min_time"          value="0.35"  type="double"/>
+    <param name="visual_servo/k_p_vy"                   value="0.004" type="double"/>
+    <param name="visual_servo/max_vy"                   value="0.5"   type="double"/>
     <param name="visual_servo/hit_offset_x"             value="45.0"  type="double"/>
     <param name="visual_servo/hit_offset_y"             value="0.0"   type="double"/>
     <param name="visual_servo/sprint_lift_velocity"     value="0.12"  type="double"/>
-    <param name="visual_servo/sprint_lock_visual_correction" value="true" type="bool"/>
+    <param name="visual_servo/sprint_lock_visual_correction" value="false" type="bool"/>
     <param name="visual_servo/post_hit_brake_velocity"  value="0.35"  type="double"/>
     <param name="visual_servo/post_hit_brake_time"      value="0.35"  type="double"/>
     <param name="visual_servo/post_hit_lift_height"     value="0.9"   type="double"/>

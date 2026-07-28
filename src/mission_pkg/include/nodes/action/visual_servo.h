@@ -58,7 +58,13 @@ private:
 
     double forward_velocity_;
     double sprint_velocity_;
-    double sprint_time_;
+    double sprint_time_;        // 自适应冲刺时长上限 (s)
+    double sprint_duration_;    // 开火瞬间按 d_est 算好的本次冲刺时长 (s)
+    double sprint_range_margin_;// 冲刺时长 = d_est/v × 该系数（余量）
+    double sprint_min_time_;    // 自适应冲刺时长下限 (s)
+    double k_p_vy_;             // 冲刺段横向视觉修正 P 增益 (m/s per pixel)
+    double max_vy_;             // 冲刺段横向速度限幅 (m/s)
+    double startup_grace_time_; // 启动宽限：未收到过目标数据时该时长内不进 RECOVERY (s)
     double hit_offset_x_;
     double hit_offset_y_;
     double sprint_lift_velocity_;
@@ -75,6 +81,19 @@ private:
     double approach_area_threshold_;
     double post_hit_success_area_ratio_;
     double center_tolerance_;
+
+    // 稳定跟踪开火门：目标在视野中持续有效达到该时长才允许进入冲刺
+    // （语义：从首次可见起算，用户要求"出现在 yolo 视野 0.8s 后即打击"；
+    //  开火当刻仍需居中+面积达标，近距离交接的居中时间天然提供 PD/KF 收敛）。
+    double strike_stable_time_;
+    bool stable_tracking_;
+    ros::Time stable_track_start_;
+    ros::Time node_start_time_;
+
+    // 开火前剩余空间守卫：机头水平朝向到安全边界盒的距离
+    // < 冲刺行程+余量 时不冲刺（保持跟踪等目标离开墙角），从几何上杜绝贴墙开火。
+    double sprint_room_margin_;
+    double boundary_x_min_, boundary_x_max_, boundary_y_min_, boundary_y_max_;
 
     // 目标丢失后的主动恢复参数
     double recovery_delay_;            // 丢失多久后进入恢复 (s)
@@ -101,6 +120,9 @@ private:
 
     double computeYawRate(double err_x, double dt);
     double computeVz(double err_y, double dt);
+
+    // 机头水平朝向到安全边界盒的剩余距离（ENU，odom 与 safety/* 同系）
+    double roomAhead() const;
 };
 
 #endif

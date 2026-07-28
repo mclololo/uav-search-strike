@@ -108,6 +108,12 @@ private:
 
   // 安全边界
   SafetyBoundary safety_boundary_;
+
+  // 预测式速度软墙：机体系速度指令的外向分量按剩余空间平滑缩放，
+  // 逼近边界时速度渐近收敛到硬余量处为 0（替代二值清零，避免贴墙振荡与冲量过线）。
+  double softWallClamp(double v, double pos, double lo, double hi) const;
+  double soft_wall_zone_{0.6};    // 距边界该距离内开始缩放 (m)
+  double soft_wall_margin_{0.25}; // 硬余量：缩放到该距离处速度为 0 (m)
   
   // 悬停状态 (用于边界保护)
   bool hover_locked_ = false;  // 重命名以区别于 DroneActionNode

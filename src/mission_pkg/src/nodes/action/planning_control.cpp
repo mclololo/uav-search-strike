@@ -39,12 +39,15 @@ PortsList PlanningControl::providedPorts() {
              InputPort<double>("tolerance", "到达容差"),
              InputPort<bool>("control_yaw", false, "是否控制偏航角"),
              InputPort<double>("yaw_rate", 0.35, "控制偏航时的最大偏航角速度(rad/s)"),
+             InputPort<double>("republish_interval", 5.0, "卡死恢复：规划器无新指令超过该时长重发目标 (s)，0=禁用"),
+             InputPort<double>("stuck_timeout", 8.0, "卡死恢复：距离不收敛超过该时长重发目标 (s)，0=禁用"),
              OutputPort<Position3D>("final_position", "到达的最终位置(x;y;z)") };
 }
 
 void PlanningControl::plannerCmdCallback(const quadrotor_msgs::PositionCommand::ConstPtr& msg) {
     last_planner_cmd = *msg;
     has_planner_cmd = true;
+    last_cmd_recv_time_ = ros::Time::now();
 }
 
 void PlanningControl::initializeTarget(const Position3D& pos) {
@@ -75,6 +78,11 @@ void PlanningControl::initializeTarget(const Position3D& pos) {
     planner_goal_pub.publish(ps);
     has_planner_cmd = false;
 
+    // 每次（重）发目标都重置看门狗计时基线
+    last_cmd_recv_time_ = ros::Time::now();
+    last_progress_time_ = last_cmd_recv_time_;
+    last_dist_ = 1e9;
+
     ROS_ERROR("[%s]: >>> NED goal to ego=(%.2f, %.2f, %.2f), yaw=%.2f, offset=%.2f <<<",
              name().c_str(), ps.pose.position.x, ps.pose.position.y, ps.pose.position.z, yaw, offset_z);
 
@@ -104,14 +112,21 @@ NodeStatus PlanningControl::onStart() {
     control_yaw = yaw_res.value();
     yaw_rate_limit_ = getInput<double>("yaw_rate").value();
 
+    auto repub_res = getInput<double>("republish_interval");
+    republish_interval_ = repub_res.value();
+    auto stuck_res = getInput<double>("stuck_timeout");
+    stuck_timeout_ = stuck_res.value();
+    republish_count_ = 0;
+
     // 捕获初始偏航角 (供 !control_yaw 使用)
     initial_yaw_ = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
     current_yaw_sp_ = initial_yaw_;
     last_loop_time_ = ros::Time::now();
 
-    ROS_INFO("[%s]: Initialized with offset_z=%.2f, tolerance=%.2f, control_yaw=%d, yaw_rate=%.2f",
-             name().c_str(), offset_z, tolerance, control_yaw, yaw_rate_limit_);
-    
+    ROS_INFO("[%s]: Initialized with offset_z=%.2f, tolerance=%.2f, control_yaw=%d, yaw_rate=%.2f, republish=%.1f/%.1fs",
+             name().c_str(), offset_z, tolerance, control_yaw, yaw_rate_limit_,
+             republish_interval_, stuck_timeout_);
+
     // 尝试获取目标点
     auto goal_res = getInput<Position3D>("goal");
     if (!goal_res) {
@@ -121,7 +136,8 @@ NodeStatus PlanningControl::onStart() {
         return NodeStatus::RUNNING;
     }
 
-    // 初始化目标
+    // 初始化目标（保留原始目标供看门狗重发）
+    raw_goal_ = goal_res.value();
     initializeTarget(goal_res.value());
     return NodeStatus::RUNNING;
 }
@@ -135,6 +151,7 @@ NodeStatus PlanningControl::onRunning() {
             return NodeStatus::RUNNING;
         }
         
+        raw_goal_ = goal_res.value();
         initializeTarget(goal_res.value());
         ROS_INFO("[%s]: Target acquired!", name().c_str());
     }
@@ -160,6 +177,30 @@ NodeStatus PlanningControl::onRunning() {
         
         sendHoverCommand();
         return NodeStatus::SUCCESS;
+    }
+
+    // 卡死恢复看门狗（设计背景见 planning_control.h）：
+    // 规划器静默超 republish_interval_ 或 距离超 stuck_timeout_ 不收敛 -> 重发目标。
+    // 重发触发 ego waypointCallback 从当前位置重新规划全局轨迹，打破 EXEC_TRAJ 楔死。
+    const ros::Time wd_now = ros::Time::now();
+    double wdx = target_pos_.x - fcu_odom_ptr->pose.pose.position.x;
+    double wdy = target_pos_.y - fcu_odom_ptr->pose.pose.position.y;
+    double wdz = target_pos_.z - fcu_odom_ptr->pose.pose.position.z;
+    double wd_dist = std::sqrt(wdx * wdx + wdy * wdy + wdz * wdz);
+    if (wd_dist < last_dist_ - 0.1) {
+        last_dist_ = wd_dist;
+        last_progress_time_ = wd_now;
+    }
+    bool silent = republish_interval_ > 0.0 && (wd_now - last_cmd_recv_time_).toSec() > republish_interval_;
+    bool stuck  = stuck_timeout_ > 0.0 && (wd_now - last_progress_time_).toSec() > stuck_timeout_;
+    if (silent || stuck) {
+        republish_count_++;
+        ROS_WARN("[%s]: Watchdog republish goal #%d (reason=%s, dist=%.2f)",
+                 name().c_str(), republish_count_, silent ? "silent" : "stuck", wd_dist);
+        publishDebugEvent("plan_republish",
+                          "reason=" + std::string(silent ? "silent" : "stuck") + " dist=" + std::to_string(wd_dist));
+        initializeTarget(raw_goal_);  // 重发原始目标（未二次投影），并重置看门狗
+        return NodeStatus::RUNNING;
     }
 
     if (!has_planner_cmd) return NodeStatus::RUNNING;
