@@ -341,9 +341,15 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_k_p_vz   = std::to_string(getDbl("visual_servo/k_p_vz", 0.01));
         std::string vs_k_d_vz   = std::to_string(getDbl("visual_servo/k_d_vz", 0.006));
         std::string vs_area_th  = std::to_string(getDbl("visual_servo/approach_area_threshold", 0.06));
+        std::string vs_stable_t = std::to_string(getDbl("visual_servo/strike_stable_time", 0.8));
+        std::string vs_room_margin = std::to_string(getDbl("visual_servo/sprint_room_margin", 0.5));
         std::string vs_fwd_vel  = std::to_string(getDbl("visual_servo/forward_velocity", 1.0));
         std::string vs_sprint_v = std::to_string(getDbl("visual_servo/sprint_velocity", 1.2));
         std::string vs_sprint_t = std::to_string(getDbl("visual_servo/sprint_time", 1.0));
+        std::string vs_sprint_range_margin = std::to_string(getDbl("visual_servo/sprint_range_margin", 1.15));
+        std::string vs_sprint_min_t = std::to_string(getDbl("visual_servo/sprint_min_time", 0.35));
+        std::string vs_k_p_vy = std::to_string(getDbl("visual_servo/k_p_vy", 0.004));
+        std::string vs_max_vy = std::to_string(getDbl("visual_servo/max_vy", 0.5));
         std::string vs_sprint_lift = std::to_string(getDbl("visual_servo/sprint_lift_velocity", 0.12));
         std::string vs_sprint_lock = getBool("visual_servo/sprint_lock_visual_correction", true) ? "true" : "false";
         std::string vs_brake_v  = std::to_string(getDbl("visual_servo/post_hit_brake_velocity", 0.35));
@@ -398,7 +404,10 @@ std::string commandToXmlNode(const std::string& command) {
             "k_p_yaw_rate=\"" + vs_k_p_yaw + "\" k_d_yaw_rate=\"" + vs_k_d_yaw + "\" "
             "k_p_vz=\"" + vs_k_p_vz + "\" k_d_vz=\"" + vs_k_d_vz + "\" "
             "approach_area_threshold=\"" + vs_area_th + "\" "
+            "strike_stable_time=\"" + vs_stable_t + "\" sprint_room_margin=\"" + vs_room_margin + "\" "
             "forward_velocity=\"" + vs_fwd_vel + "\" sprint_velocity=\"" + vs_sprint_v + "\" sprint_time=\"" + vs_sprint_t + "\" "
+            "sprint_range_margin=\"" + vs_sprint_range_margin + "\" sprint_min_time=\"" + vs_sprint_min_t + "\" "
+            "k_p_vy=\"" + vs_k_p_vy + "\" max_vy=\"" + vs_max_vy + "\" "
             "hit_offset_x=\"" + vs_hit_offset_x + "\" hit_offset_y=\"" + vs_hit_offset_y + "\" "
             "sprint_lift_velocity=\"" + vs_sprint_lift + "\" sprint_lock_visual_correction=\"" + vs_sprint_lock + "\" "
             "post_hit_brake_velocity=\"" + vs_brake_v + "\" post_hit_brake_time=\"" + vs_brake_t + "\" "

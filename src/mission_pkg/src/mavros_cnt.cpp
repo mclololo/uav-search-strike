@@ -10,6 +10,8 @@
 #include "mavros_cnt.h"
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <algorithm>
+#include <cmath>
 
 
 
@@ -71,12 +73,15 @@ void MavRosConnect::InitMavRosConnect()
   nh_->param<double>("safety/y_max", safety_boundary_.y_max, 10.0);
   nh_->param<double>("safety/z_min", safety_boundary_.z_min, 0.0);
   nh_->param<double>("safety/z_max", safety_boundary_.z_max, 5.0);
+  nh_->param<double>("safety/soft_wall_zone", soft_wall_zone_, 0.6);
+  nh_->param<double>("safety/soft_wall_margin", soft_wall_margin_, 0.25);
 
   if (safety_boundary_.enabled) {
-    ROS_INFO("Safety boundary enabled: X[%.1f, %.1f] Y[%.1f, %.1f] Z[%.1f, %.1f]",
+    ROS_INFO("Safety boundary enabled: X[%.1f, %.1f] Y[%.1f, %.1f] Z[%.1f, %.1f] soft_wall(zone=%.2f, margin=%.2f)",
              safety_boundary_.x_min, safety_boundary_.x_max,
              safety_boundary_.y_min, safety_boundary_.y_max,
-             safety_boundary_.z_min, safety_boundary_.z_max);
+             safety_boundary_.z_min, safety_boundary_.z_max,
+             soft_wall_zone_, soft_wall_margin_);
   }
 
   // 初始化定时发布 (50Hz)
@@ -194,6 +199,13 @@ void MavRosConnect::cmdPublishLoop(const ros::TimerEvent &event)
         // 1. 首次触发越界时，锁定当前位置作为悬停点
         if (!hover_locked_) {
             hover_pos_ = fcu_odom.pose.pose.position;
+            // 锁定点投影回界内：锁在界外会把飞机钉在墙外并覆盖一切返航指令形成死锁。
+            // 投影后悬停目标在界内 -> 飞机自行飞回 -> 越界标志消除 -> 锁自动释放。
+            hover_pos_.x = std::clamp(hover_pos_.x,
+                                      safety_boundary_.x_min + 0.25, safety_boundary_.x_max - 0.25);
+            hover_pos_.y = std::clamp(hover_pos_.y,
+                                      safety_boundary_.y_min + 0.25, safety_boundary_.y_max - 0.25);
+            hover_pos_.z = std::max(hover_pos_.z, 0.5);
             tf2::Quaternion q;
             tf2::fromMsg(fcu_odom.pose.pose.orientation, q);
             double r, p, y;
@@ -240,10 +252,60 @@ void MavRosConnect::cmdPublishLoop(const ros::TimerEvent &event)
         }
     }
 
-    // 统一发布 current_cmd
+    // 统一发布 current_cmd（机体系速度指令先过预测式软墙）
     std::lock_guard<std::mutex> lock(cmd_mtx);
-    current_cmd.header.stamp = ros::Time::now();
-    tgt_pose_pub.publish(current_cmd);
+    mavros_msgs::PositionTarget out = current_cmd;
+
+    // 预测式速度软墙：只覆盖 FRAME_BODY_NED 速度指令（伺服/扫描通道），
+    // 外向分量按剩余空间平滑缩放、内向放行；位置指令与 LOCAL_NED 速度
+    // 由规划器避障 + 上方悬停锁投影界内兜底。
+    if (safety_boundary_.enabled &&
+        out.coordinate_frame == mavros_msgs::PositionTarget::FRAME_BODY_NED) {
+        bool use_vx = !(out.type_mask & mavros_msgs::PositionTarget::IGNORE_VX);
+        bool use_vy = !(out.type_mask & mavros_msgs::PositionTarget::IGNORE_VY);
+        if (use_vx || use_vy) {
+            tf2::Quaternion q;
+            tf2::fromMsg(fcu_odom.pose.pose.orientation, q);
+            double r, p, yaw;
+            tf2::Matrix3x3(q).getRPY(r, p, yaw);
+            double c = std::cos(yaw), s = std::sin(yaw);
+            double vx_b = use_vx ? out.velocity.x : 0.0;
+            double vy_b = use_vy ? out.velocity.y : 0.0;
+            // 机体系 → ENU（机头 = odom 偏航，已实测验证：A区 yaw=π/2 机头朝北）
+            double vx_e = vx_b * c - vy_b * s;
+            double vy_e = vx_b * s + vy_b * c;
+            const auto &pos = fcu_odom.pose.pose.position;
+            double cx_e = softWallClamp(vx_e, pos.x, safety_boundary_.x_min, safety_boundary_.x_max);
+            double cy_e = softWallClamp(vy_e, pos.y, safety_boundary_.y_min, safety_boundary_.y_max);
+            if (cx_e != vx_e || cy_e != vy_e) {
+                // 旋回机体系后只写回未被 IGNORE 的分量
+                if (use_vx) out.velocity.x = cx_e * c + cy_e * s;
+                if (use_vy) out.velocity.y = -cx_e * s + cy_e * c;
+                ROS_WARN_THROTTLE(1.0, "[Safety] Soft wall: clamped outward velocity at (%.2f, %.2f)",
+                                  pos.x, pos.y);
+            }
+        }
+    }
+
+    out.header.stamp = ros::Time::now();
+    tgt_pose_pub.publish(out);
+}
+
+double MavRosConnect::softWallClamp(double v, double pos, double lo, double hi) const
+{
+  if (v > 0.0) {
+    double room = hi - pos;
+    if (room >= soft_wall_zone_) return v;
+    double s = (room - soft_wall_margin_) / (soft_wall_zone_ - soft_wall_margin_);
+    return v * std::clamp(s, 0.0, 1.0);
+  }
+  if (v < 0.0) {
+    double room = pos - lo;
+    if (room >= soft_wall_zone_) return v;
+    double s = (room - soft_wall_margin_) / (soft_wall_zone_ - soft_wall_margin_);
+    return v * std::clamp(s, 0.0, 1.0);
+  }
+  return v;
 }
 
 bool MavRosConnect::isWithinBoundary() const
