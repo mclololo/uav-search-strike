@@ -51,6 +51,8 @@ public:
 
   const nav_msgs::Odometry *getFcuOdom();
   const mavros_msgs::State *        getFcuState();
+  bool         hasHomePosition() const;
+  geometry_msgs::Point getHomePosition() const;
   std::mutex &GetPoseMtx();
   ros::ServiceClient *              getSetModeClient();
   ros::ServiceClient *              getArmClient();
@@ -91,6 +93,8 @@ private:
   Param                      param;
   mavros_msgs::State         fcu_state;
   nav_msgs::Odometry         fcu_odom;
+  geometry_msgs::Point       home_position_;
+  bool                        home_position_recorded_ = false;
 
   std::shared_ptr<ros::NodeHandle> nh_;
   ros::Subscriber                  fcu_odom_sub;

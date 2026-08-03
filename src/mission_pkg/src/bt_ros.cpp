@@ -322,29 +322,40 @@ std::string commandToXmlNode(const std::string& command) {
         std::string param_prefix = "balloon_zone_" + zone;
         std::string approach_pos = getStr(param_prefix + "/approach_pos", "5.3;1.0;0.7");
         std::string goto_pos = getStr(param_prefix + "/goal", "0.0;-0.8;0.5");
+        std::string search_pos = getStr(param_prefix + "/search_pos", goto_pos);
         double yaw_val = getDbl(param_prefix + "/yaw", -1.570796);
         std::string yaw = std::to_string(yaw_val);
         std::string balloon_name = color + "_balloon";
         double default_hit_offset = getDbl("visual_servo/hit_offset_x", 45.0);
         std::string vs_hit_offset_x = std::to_string(getDbl(param_prefix + "/hit_offset_x", default_hit_offset));
         std::string vs_hit_offset_y = std::to_string(getDbl(param_prefix + "/hit_offset_y", getDbl("visual_servo/hit_offset_y", 0.0)));
+        std::string vs_corridor_length = std::to_string(
+            getDbl(param_prefix + "/corridor_reference_length", 5.20));
+        std::string vs_sprint_limit_ratio = std::to_string(
+            getDbl(param_prefix + "/sprint_limit_ratio", 0.78));
+        std::string vs_wait_entry_ratio = std::to_string(
+            getDbl(param_prefix + "/wait_entry_ratio", 0.35));
+        std::string vs_hit_offset_reference_depth = std::to_string(
+            getDbl("visual_servo/hit_offset_reference_depth", 0.80));
+        std::string vs_max_hit_offset_ratio = std::to_string(
+            getDbl("visual_servo/max_hit_offset_ratio", 0.35));
         
-        double scan_yaw_rate = getDbl("balloon_scan/yaw_rate", 0.35);
-        double scan_timeout = getDbl("balloon_scan/timeout", 8.0);
+        double scan_yaw_rate = getDbl("balloon_scan/yaw_rate", 0.0);
+        double scan_timeout = getDbl("balloon_scan/timeout", 45.0);
         double scan_center_gate_x = getDbl("balloon_scan/center_gate_x_ratio", 0.22);
         double scan_center_gate_y = getDbl("balloon_scan/center_gate_y_ratio", 0.35);
         int scan_stable_frames = (int)getDbl("balloon_scan/stable_frames", 3);
-        double scan_hold_time = getDbl("balloon_scan/detection_hold_time", 0.6);
+        double scan_hold_time = getDbl("balloon_scan/detection_hold_time", 0.1);
 
         std::string vs_k_p_yaw  = std::to_string(getDbl("visual_servo/k_p_yaw_rate", 0.004));
         std::string vs_k_d_yaw  = std::to_string(getDbl("visual_servo/k_d_yaw_rate", 0.008));
         std::string vs_k_p_vz   = std::to_string(getDbl("visual_servo/k_p_vz", 0.01));
         std::string vs_k_d_vz   = std::to_string(getDbl("visual_servo/k_d_vz", 0.006));
         std::string vs_area_th  = std::to_string(getDbl("visual_servo/approach_area_threshold", 0.06));
-        std::string vs_fwd_vel  = std::to_string(getDbl("visual_servo/forward_velocity", 1.0));
-        std::string vs_sprint_v = std::to_string(getDbl("visual_servo/sprint_velocity", 1.2));
-        std::string vs_sprint_t = std::to_string(getDbl("visual_servo/sprint_time", 1.0));
-        std::string vs_sprint_lift = std::to_string(getDbl("visual_servo/sprint_lift_velocity", 0.12));
+        std::string vs_fwd_vel  = std::to_string(getDbl("visual_servo/forward_velocity", 0.35));
+        std::string vs_sprint_v = std::to_string(getDbl("visual_servo/sprint_velocity", 0.85));
+        std::string vs_sprint_t = std::to_string(getDbl("visual_servo/sprint_time", 6.0));
+        std::string vs_sprint_lift = std::to_string(getDbl("visual_servo/sprint_lift_velocity", 0.0));
         std::string vs_sprint_lock = getBool("visual_servo/sprint_lock_visual_correction", true) ? "true" : "false";
         std::string vs_brake_v  = std::to_string(getDbl("visual_servo/post_hit_brake_velocity", 0.35));
         std::string vs_brake_t  = std::to_string(getDbl("visual_servo/post_hit_brake_time", 0.35));
@@ -357,29 +368,96 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_data_timeout = std::to_string(getDbl("visual_servo/data_timeout", 1.0));
         std::string tracker_grace_time = std::to_string(getDbl("target_tracker/lost_target_grace_time", 0.8));
         std::string scan_phase_duration = std::to_string(getDbl("balloon_scan/phase_duration", 2.5));
-        std::string scan_lateral_velocity = std::to_string(getDbl("balloon_scan/lateral_velocity", 0.18));
-        std::string scan_backward_velocity = std::to_string(getDbl("balloon_scan/backward_velocity", 0.12));
+        std::string scan_lateral_velocity = std::to_string(getDbl("balloon_scan/lateral_velocity", 0.0));
+        std::string scan_backward_velocity = std::to_string(getDbl("balloon_scan/backward_velocity", 0.0));
         std::string balloon_conf = std::to_string(getDbl("balloon_detection/confidence_threshold", 0.60));
         int retry_attempts = (int)getDbl("balloon_scan/retry_attempts", 2);
         if (retry_attempts < 1) retry_attempts = 1;
 
         std::string vs_recovery_delay = std::to_string(getDbl("visual_servo/recovery_delay", 0.15));
-        std::string vs_recovery_backoff_v = std::to_string(getDbl("visual_servo/recovery_backoff_velocity", -0.25));
-        std::string vs_recovery_backoff_t = std::to_string(getDbl("visual_servo/recovery_backoff_time", 0.8));
+        std::string vs_recovery_backoff_v = std::to_string(getDbl("visual_servo/recovery_backoff_velocity", 0.0));
+        std::string vs_recovery_backoff_t = std::to_string(getDbl("visual_servo/recovery_backoff_time", 0.0));
         std::string vs_recovery_yaw = std::to_string(getDbl("visual_servo/recovery_yaw_rate", 0.5));
         std::string vs_recovery_timeout = std::to_string(getDbl("visual_servo/recovery_total_timeout", 3.0));
+        std::string vs_startup_grace = std::to_string(getDbl("visual_servo/startup_grace_time", 1.0));
+        std::string vs_stable_time = std::to_string(getDbl("visual_servo/strike_stable_time", 0.15));
+        std::string vs_alignment_tolerance = std::to_string(
+            getDbl("visual_servo/sprint_alignment_tolerance_px", 24.0));
+        std::string vs_vertical_alignment_tolerance = std::to_string(
+            getDbl("visual_servo/sprint_vertical_alignment_tolerance_px", 160.0));
+        std::string vs_alignment_frames = std::to_string(
+            static_cast<int>(getDbl("visual_servo/sprint_alignment_stable_frames", 2)));
+        std::string vs_sprint_altitude_tolerance = std::to_string(
+            getDbl("visual_servo/sprint_altitude_tolerance", 0.04));
+        std::string vs_sprint_vertical_speed_tolerance = std::to_string(
+            getDbl("visual_servo/sprint_vertical_speed_tolerance", 0.06));
+        std::string vs_sprint_altitude_hold_gain = std::to_string(
+            getDbl("visual_servo/sprint_altitude_hold_gain", 1.5));
+        std::string vs_sprint_max_vertical_correction = std::to_string(
+            getDbl("visual_servo/sprint_max_vertical_correction", 0.08));
+        std::string vs_sprint_loss_grace = std::to_string(
+            getDbl("visual_servo/sprint_target_loss_grace", 0.60));
+        std::string vs_strike_altitude = std::to_string(getDbl("visual_servo/strike_altitude", 0.40));
+        std::string vs_descent_velocity = std::to_string(getDbl("visual_servo/descent_velocity", 0.22));
+        std::string vs_descent_tolerance = std::to_string(getDbl("visual_servo/descent_tolerance", 0.05));
+        std::string vs_descent_timeout = std::to_string(getDbl("visual_servo/descent_timeout", 4.0));
+        std::string vs_heading_gain = std::to_string(getDbl("visual_servo/heading_hold_gain", 1.5));
+        std::string vs_heading_rate = std::to_string(getDbl("visual_servo/heading_hold_max_rate", 0.30));
+        std::string vs_wait_velocity = std::to_string(getDbl("visual_servo/wait_velocity", 0.16));
+        std::string vs_wait_timeout = std::to_string(getDbl("visual_servo/wait_timeout", 12.0));
+        std::string vs_wait_contact = std::to_string(getDbl("visual_servo/wait_contact_distance", 0.42));
+        std::string vs_depth_timeout = std::to_string(getDbl("visual_servo/depth_timeout", 0.5));
+        std::string vs_depth_min_points = std::to_string((int)getDbl("visual_servo/depth_min_points", 8));
+        std::string vs_target_depth_band = std::to_string(getDbl("visual_servo/target_depth_band", 0.22));
+        std::string vs_target_depth_quantile = std::to_string(getDbl("visual_servo/target_depth_quantile", 0.30));
+        std::string vs_target_bbox_margin = std::to_string(getDbl("visual_servo/target_bbox_margin_px", 5.0));
+        std::string vs_corridor_w = std::to_string(getDbl("visual_servo/corridor_half_width", 0.38));
+        std::string vs_corridor_h = std::to_string(getDbl("visual_servo/corridor_half_height", 0.32));
+        std::string vs_emergency_clear = std::to_string(getDbl("visual_servo/emergency_clearance", 0.48));
+        std::string vs_contact_dist = std::to_string(getDbl("visual_servo/contact_distance", 0.35));
+        std::string vs_braking_accel = std::to_string(getDbl("visual_servo/braking_acceleration", 0.8));
+        std::string vs_control_latency = std::to_string(getDbl("visual_servo/control_latency", 0.15));
+        std::string vs_min_alt = std::to_string(getDbl("visual_servo/min_attack_altitude", 0.30));
+        std::string vs_altitude_guard = std::to_string(getDbl("visual_servo/altitude_guard_margin", 0.10));
+        std::string vs_altitude_recovery = std::to_string(getDbl("visual_servo/altitude_recovery_speed", 0.18));
+        std::string vs_boundary_margin = std::to_string(getDbl("visual_servo/boundary_margin", 0.40));
+        std::string vs_brake_speed = std::to_string(getDbl("visual_servo/brake_speed_threshold", 0.12));
+        std::string vs_brake_hold = std::to_string(getDbl("visual_servo/brake_hold_time", 0.30));
+        std::string vs_brake_timeout = std::to_string(getDbl("visual_servo/brake_timeout", 1.50));
+        std::string staging_tolerance = std::to_string(
+            getDbl("balloon_scan/staging_tolerance", 0.10));
+        std::string staging_yaw_tolerance = std::to_string(
+            getDbl("balloon_scan/staging_yaw_tolerance", 0.08));
+        int staging_settle_ms = static_cast<int>(
+            getDbl("balloon_scan/staging_settle_ms", 1000));
 
-        ROS_INFO("Hit balloon: color=%s -> zone=%s, approach=%s, goto=%s, yaw=%s, target=%s",
-                 color.c_str(), zone.c_str(), approach_pos.c_str(), goto_pos.c_str(), yaw.c_str(), balloon_name.c_str());
+        std::string pre_scan_descent;
+        if (search_pos != goto_pos) {
+            pre_scan_descent =
+                "      <!-- Fixed-XY descent must finish before balloon search starts -->\n"
+                "      <GoTo goal=\"" + search_pos + "\" yaw=\"" + yaw +
+                "\" tolerance=\"" + staging_tolerance + "\" yaw_tolerance=\"" +
+                staging_yaw_tolerance + "\" yaw_rate=\"0.35\"/>\n";
+        }
+
+        ROS_INFO("Hit balloon: color=%s -> zone=%s, approach=%s, staging=%s, search=%s, yaw=%s, target=%s",
+                 color.c_str(), zone.c_str(), approach_pos.c_str(), goto_pos.c_str(),
+                 search_pos.c_str(), yaw.c_str(), balloon_name.c_str());
 
         return
             "      <!-- 规划飞到气球打击区域" + zone + " -->\n"
             "      <PlanningControl goal=\"" + approach_pos + "\"/>\n"
-            "      <!-- 规划到" + zone + "区气球(" + color + ")打击准备点 -->\n"
+            "      <!-- 在固定XY下降到低空搜索点 -->\n"
             "      <PlanningControl goal=\"" + goto_pos + "\"/>\n"
-            "      <!-- 原地转向朝向" + zone + "区气球(" + color + ") -->\n"
-            "      <GoTo yaw=\"" + yaw + "\"/>\n"
-            "      <!-- 主动扫描+跟踪，支持丢失后重试 -->\n"
+            "      <!-- 再次确认低空搜索位置和初始航向，未到位不得搜索 -->\n"
+            "      <GoTo goal=\"" + goto_pos + "\" yaw=\"" + yaw + "\" tolerance=\"" + staging_tolerance +
+            "\" yaw_tolerance=\"" + staging_yaw_tolerance + "\" yaw_rate=\"0.35\"/>\n"
+            + pre_scan_descent +
+            "      <Delay delay_msec=\"" + std::to_string(staging_settle_ms) + "\">\n"
+            "        <AlwaysSuccess/>\n"
+            "      </Delay>\n"
+            "      <!-- 主动扫描+跟踪；异常退出先撤离，再重新搜索 -->\n"
+            "      <ForceSuccess>\n"
             "      <RetryUntilSuccessful num_attempts=\"" + std::to_string(retry_attempts) + "\">\n"
             "        <Sequence name=\"AcquireAndHit\">\n"
             "          <!-- 主动旋转扫描，先把目标拉进视野 -->\n"
@@ -388,8 +466,7 @@ std::string commandToXmlNode(const std::string& command) {
             "center_gate_x_ratio=\"" + std::to_string(scan_center_gate_x) + "\" center_gate_y_ratio=\"" + std::to_string(scan_center_gate_y) + "\" "
             "stable_frames=\"" + std::to_string(scan_stable_frames) + "\" detection_hold_time=\"" + std::to_string(scan_hold_time) + "\" "
             "phase_duration=\"" + scan_phase_duration + "\" lateral_velocity=\"" + scan_lateral_velocity + "\" backward_velocity=\"" + scan_backward_velocity + "\"/>\n"
-            "          <!-- 跟踪并撞击气球 -->\n"
-            "          <ForceSuccess>\n"
+            "          <!-- 低空侧桨偏置对准后锁定航向直线冲刺；未命中则进入等待区 -->\n"
             "            <Timeout msec=\"50000\">\n"
             "              <Parallel success_count=\"1\" failure_count=\"1\">\n"
             "                <TargetTracker object_name=\"" + balloon_name + "\" confidence_threshold=\"" + balloon_conf + "\" pixel_target=\"{balloon_pixel}\" "
@@ -400,20 +477,46 @@ std::string commandToXmlNode(const std::string& command) {
             "approach_area_threshold=\"" + vs_area_th + "\" "
             "forward_velocity=\"" + vs_fwd_vel + "\" sprint_velocity=\"" + vs_sprint_v + "\" sprint_time=\"" + vs_sprint_t + "\" "
             "hit_offset_x=\"" + vs_hit_offset_x + "\" hit_offset_y=\"" + vs_hit_offset_y + "\" "
+            "hit_offset_reference_depth=\"" + vs_hit_offset_reference_depth + "\" max_hit_offset_ratio=\"" + vs_max_hit_offset_ratio + "\" "
+            "corridor_reference_length=\"" + vs_corridor_length + "\" sprint_limit_ratio=\"" + vs_sprint_limit_ratio + "\" "
+            "wait_entry_ratio=\"" + vs_wait_entry_ratio + "\" "
             "sprint_lift_velocity=\"" + vs_sprint_lift + "\" sprint_lock_visual_correction=\"" + vs_sprint_lock + "\" "
             "post_hit_brake_velocity=\"" + vs_brake_v + "\" post_hit_brake_time=\"" + vs_brake_t + "\" "
             "post_hit_lift_height=\"" + vs_lift_h + "\" post_hit_lift_time=\"" + vs_lift_t + "\" "
             "post_hit_lift_timeout=\"" + vs_lift_timeout + "\" post_hit_lift_tolerance=\"" + vs_lift_tol + "\" "
             "post_hit_settle_time=\"" + vs_settle_t + "\" post_hit_success_area_ratio=\"" + vs_success_area + "\" "
-            "data_timeout=\"" + vs_data_timeout + "\" "
+            "data_timeout=\"" + vs_data_timeout + "\" startup_grace_time=\"" + vs_startup_grace + "\" "
+            "strike_stable_time=\"" + vs_stable_time + "\" sprint_alignment_tolerance_px=\"" + vs_alignment_tolerance + "\" "
+            "sprint_vertical_alignment_tolerance_px=\"" + vs_vertical_alignment_tolerance + "\" "
+            "sprint_alignment_stable_frames=\"" + vs_alignment_frames + "\" "
+            "sprint_altitude_tolerance=\"" + vs_sprint_altitude_tolerance + "\" "
+            "sprint_vertical_speed_tolerance=\"" + vs_sprint_vertical_speed_tolerance + "\" "
+            "sprint_altitude_hold_gain=\"" + vs_sprint_altitude_hold_gain + "\" "
+            "sprint_max_vertical_correction=\"" + vs_sprint_max_vertical_correction + "\" "
+            "sprint_target_loss_grace=\"" + vs_sprint_loss_grace + "\" "
+            "strike_altitude=\"" + vs_strike_altitude + "\" descent_velocity=\"" + vs_descent_velocity + "\" "
+            "descent_tolerance=\"" + vs_descent_tolerance + "\" descent_timeout=\"" + vs_descent_timeout + "\" "
+            "heading_hold_gain=\"" + vs_heading_gain + "\" heading_hold_max_rate=\"" + vs_heading_rate + "\" "
+            "wait_velocity=\"" + vs_wait_velocity + "\" wait_timeout=\"" + vs_wait_timeout + "\" "
+            "wait_contact_distance=\"" + vs_wait_contact + "\" "
             "recovery_delay=\"" + vs_recovery_delay + "\" recovery_backoff_velocity=\"" + vs_recovery_backoff_v + "\" "
             "recovery_backoff_time=\"" + vs_recovery_backoff_t + "\" recovery_yaw_rate=\"" + vs_recovery_yaw + "\" "
-            "recovery_total_timeout=\"" + vs_recovery_timeout + "\"/>\n"
+            "recovery_total_timeout=\"" + vs_recovery_timeout + "\" "
+            "depth_timeout=\"" + vs_depth_timeout + "\" depth_min_points=\"" + vs_depth_min_points + "\" "
+            "target_depth_band=\"" + vs_target_depth_band + "\" target_depth_quantile=\"" + vs_target_depth_quantile + "\" "
+            "target_bbox_margin_px=\"" + vs_target_bbox_margin + "\" corridor_half_width=\"" + vs_corridor_w + "\" "
+            "corridor_half_height=\"" + vs_corridor_h + "\" "
+            "emergency_clearance=\"" + vs_emergency_clear + "\" contact_distance=\"" + vs_contact_dist + "\" "
+            "braking_acceleration=\"" + vs_braking_accel + "\" control_latency=\"" + vs_control_latency + "\" "
+            "min_attack_altitude=\"" + vs_min_alt + "\" altitude_guard_margin=\"" + vs_altitude_guard + "\" "
+            "altitude_recovery_speed=\"" + vs_altitude_recovery + "\" boundary_margin=\"" + vs_boundary_margin + "\" "
+            "brake_speed_threshold=\"" + vs_brake_speed + "\" brake_hold_time=\"" + vs_brake_hold + "\" "
+            "brake_timeout=\"" + vs_brake_timeout + "\"/>\n"
             "              </Parallel>\n"
             "            </Timeout>\n"
-            "          </ForceSuccess>\n"
             "        </Sequence>\n"
-            "      </RetryUntilSuccessful>\n";
+            "      </RetryUntilSuccessful>\n"
+            "      </ForceSuccess>\n";
     }
     
     // ---- land ----
@@ -425,11 +528,11 @@ std::string commandToXmlNode(const std::string& command) {
         double final_yaw_rate = getDbl("land/final_yaw_rate", 0.25);
         return
             "      <!-- 规划返航到起点上方，避免撞球后低空直线返回 -->\n"
-            "      <PlanningControl goal=\"" + return_high_pos + "\" control_yaw=\"true\" yaw_rate=\"" + std::to_string(plan_yaw_rate) + "\"/>\n"
-            "      <!-- 到起点上方后先原地平滑转到降落航向 -->\n"
+            "      <PlanningControl goal=\"" + return_high_pos + "\" use_home_xy=\"true\" control_yaw=\"true\" yaw_rate=\"" + std::to_string(plan_yaw_rate) + "\"/>\n"
+            "      <!-- 到起飞区上方后先原地平滑转到降落航向 -->\n"
             "      <GoTo yaw=\"" + std::to_string(ret_yaw) + "\" yaw_rate=\"" + std::to_string(final_yaw_rate) + "\"/>\n"
-            "      <!-- 航向稳定后再下降到降落前低位点 -->\n"
-            "      <GoTo goal=\"" + return_low_pos + "\"/>\n"
+            "      <!-- 继续用规划器在起飞区内下降，避免低空直线切障碍 -->\n"
+            "      <PlanningControl goal=\"" + return_low_pos + "\" use_home_xy=\"true\" control_yaw=\"true\" yaw_rate=\"" + std::to_string(plan_yaw_rate) + "\"/>\n"
             "      <Land/>\n";
     }
 

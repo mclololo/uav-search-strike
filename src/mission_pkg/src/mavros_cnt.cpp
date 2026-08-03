@@ -96,6 +96,18 @@ const nav_msgs::Odometry *MavRosConnect::getFcuOdom()
   return &fcu_odom;
 }
 
+bool MavRosConnect::hasHomePosition() const
+{
+  std::lock_guard<std::mutex> lock(pose_mtx);
+  return home_position_recorded_;
+}
+
+geometry_msgs::Point MavRosConnect::getHomePosition() const
+{
+  std::lock_guard<std::mutex> lock(pose_mtx);
+  return home_position_;
+}
+
 
 const mavros_msgs::State *MavRosConnect::getFcuState()
 {
@@ -145,9 +157,16 @@ void MavRosConnect::FcuStateCallback(const mavros_msgs::State::ConstPtr &msg)
 
 void MavRosConnect::FcuOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
 {
+  std::lock_guard<std::mutex> lock(pose_mtx);
   if (!fcu_odom_received_) {
     fcu_odom_received_ = true;
     ROS_INFO("[MavRosConnect] Drone localization connected (odom)");
+  }
+  if (!home_position_recorded_) {
+    home_position_ = msg->pose.pose.position;
+    home_position_recorded_ = true;
+    ROS_INFO("[MavRosConnect] Home position recorded at (%.2f, %.2f, %.2f)",
+             home_position_.x, home_position_.y, home_position_.z);
   }
   fcu_odom = *msg;
 }
