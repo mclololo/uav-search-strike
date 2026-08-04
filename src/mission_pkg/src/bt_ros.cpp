@@ -322,7 +322,6 @@ std::string commandToXmlNode(const std::string& command) {
         std::string param_prefix = "balloon_zone_" + zone;
         std::string approach_pos = getStr(param_prefix + "/approach_pos", "5.3;1.0;0.7");
         std::string goto_pos = getStr(param_prefix + "/goal", "0.0;-0.8;0.5");
-        std::string search_pos = getStr(param_prefix + "/search_pos", goto_pos);
         double yaw_val = getDbl(param_prefix + "/yaw", -1.570796);
         std::string yaw = std::to_string(yaw_val);
         std::string balloon_name = color + "_balloon";
@@ -406,11 +405,30 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_wait_velocity = std::to_string(getDbl("visual_servo/wait_velocity", 0.16));
         std::string vs_wait_timeout = std::to_string(getDbl("visual_servo/wait_timeout", 12.0));
         std::string vs_wait_contact = std::to_string(getDbl("visual_servo/wait_contact_distance", 0.42));
-        std::string vs_depth_timeout = std::to_string(getDbl("visual_servo/depth_timeout", 0.5));
+        std::string vs_depth_timeout = std::to_string(getDbl("visual_servo/depth_timeout", 0.20));
         std::string vs_depth_min_points = std::to_string((int)getDbl("visual_servo/depth_min_points", 8));
         std::string vs_target_depth_band = std::to_string(getDbl("visual_servo/target_depth_band", 0.22));
         std::string vs_target_depth_quantile = std::to_string(getDbl("visual_servo/target_depth_quantile", 0.30));
         std::string vs_target_bbox_margin = std::to_string(getDbl("visual_servo/target_bbox_margin_px", 5.0));
+        std::string vs_target_zone_near = std::to_string(
+            getDbl("visual_servo/target_zone_near_distance", 0.15));
+        std::string vs_target_zone_far = std::to_string(
+            getDbl(param_prefix + "/target_zone_far_ratio",
+                   getDbl("visual_servo/target_zone_far_ratio", 0.80)));
+        std::string vs_target_zone_lateral = std::to_string(
+            getDbl("visual_servo/target_zone_lateral_limit", 0.55));
+        std::string vs_target_zone_fallback = std::to_string(
+            getDbl("visual_servo/target_zone_fallback_area_ratio", 0.002));
+        std::string vs_target_closing_speed = std::to_string(
+            getDbl("visual_servo/target_closing_speed_threshold", 0.15));
+        std::string vs_target_ttc = std::to_string(
+            getDbl("visual_servo/target_ttc_threshold", 2.0));
+        std::string vs_target_intercept_margin = std::to_string(
+            getDbl("visual_servo/target_intercept_margin_px", 12.0));
+        std::string vs_target_carrier_depth = std::to_string(
+            getDbl("visual_servo/target_carrier_depth_margin", 0.55));
+        std::string vs_target_carrier_below = std::to_string(
+            getDbl("visual_servo/target_carrier_below_margin_px", 120.0));
         std::string vs_corridor_w = std::to_string(getDbl("visual_servo/corridor_half_width", 0.38));
         std::string vs_corridor_h = std::to_string(getDbl("visual_servo/corridor_half_height", 0.32));
         std::string vs_emergency_clear = std::to_string(getDbl("visual_servo/emergency_clearance", 0.48));
@@ -429,33 +447,29 @@ std::string commandToXmlNode(const std::string& command) {
         std::string staging_yaw_tolerance = std::to_string(
             getDbl("balloon_scan/staging_yaw_tolerance", 0.08));
         int staging_settle_ms = static_cast<int>(
-            getDbl("balloon_scan/staging_settle_ms", 1000));
+            getDbl("balloon_scan/staging_settle_ms", 0));
 
-        std::string pre_scan_descent;
-        if (search_pos != goto_pos) {
-            pre_scan_descent =
-                "      <!-- Fixed-XY descent must finish before balloon search starts -->\n"
-                "      <GoTo goal=\"" + search_pos + "\" yaw=\"" + yaw +
-                "\" tolerance=\"" + staging_tolerance + "\" yaw_tolerance=\"" +
-                staging_yaw_tolerance + "\" yaw_rate=\"0.35\"/>\n";
+        std::string staging_settle;
+        if (staging_settle_ms > 0) {
+            staging_settle =
+                "      <Delay delay_msec=\"" + std::to_string(staging_settle_ms) + "\">\n"
+                "        <AlwaysSuccess/>\n"
+                "      </Delay>\n";
         }
 
-        ROS_INFO("Hit balloon: color=%s -> zone=%s, approach=%s, staging=%s, search=%s, yaw=%s, target=%s",
+        ROS_INFO("Hit balloon: color=%s -> zone=%s, approach=%s, staging=%s, yaw=%s, target=%s",
                  color.c_str(), zone.c_str(), approach_pos.c_str(), goto_pos.c_str(),
-                 search_pos.c_str(), yaw.c_str(), balloon_name.c_str());
+                 yaw.c_str(), balloon_name.c_str());
 
         return
             "      <!-- 规划飞到气球打击区域" + zone + " -->\n"
             "      <PlanningControl goal=\"" + approach_pos + "\"/>\n"
-            "      <!-- 在固定XY下降到低空搜索点 -->\n"
+            "      <!-- 规划到0.70m搜索点；目标出现前不预降到打击高度 -->\n"
             "      <PlanningControl goal=\"" + goto_pos + "\"/>\n"
-            "      <!-- 再次确认低空搜索位置和初始航向，未到位不得搜索 -->\n"
+            "      <!-- 确认搜索位置和走廊航向，未到位不得搜索 -->\n"
             "      <GoTo goal=\"" + goto_pos + "\" yaw=\"" + yaw + "\" tolerance=\"" + staging_tolerance +
             "\" yaw_tolerance=\"" + staging_yaw_tolerance + "\" yaw_rate=\"0.35\"/>\n"
-            + pre_scan_descent +
-            "      <Delay delay_msec=\"" + std::to_string(staging_settle_ms) + "\">\n"
-            "        <AlwaysSuccess/>\n"
-            "      </Delay>\n"
+            + staging_settle +
             "      <!-- 主动扫描+跟踪；异常退出先撤离，再重新搜索 -->\n"
             "      <ForceSuccess>\n"
             "      <RetryUntilSuccessful num_attempts=\"" + std::to_string(retry_attempts) + "\">\n"
@@ -478,7 +492,8 @@ std::string commandToXmlNode(const std::string& command) {
             "forward_velocity=\"" + vs_fwd_vel + "\" sprint_velocity=\"" + vs_sprint_v + "\" sprint_time=\"" + vs_sprint_t + "\" "
             "hit_offset_x=\"" + vs_hit_offset_x + "\" hit_offset_y=\"" + vs_hit_offset_y + "\" "
             "hit_offset_reference_depth=\"" + vs_hit_offset_reference_depth + "\" max_hit_offset_ratio=\"" + vs_max_hit_offset_ratio + "\" "
-            "corridor_reference_length=\"" + vs_corridor_length + "\" sprint_limit_ratio=\"" + vs_sprint_limit_ratio + "\" "
+            "corridor_reference_length=\"" + vs_corridor_length + "\" corridor_yaw=\"" + yaw + "\" "
+            "sprint_limit_ratio=\"" + vs_sprint_limit_ratio + "\" "
             "wait_entry_ratio=\"" + vs_wait_entry_ratio + "\" "
             "sprint_lift_velocity=\"" + vs_sprint_lift + "\" sprint_lock_visual_correction=\"" + vs_sprint_lock + "\" "
             "post_hit_brake_velocity=\"" + vs_brake_v + "\" post_hit_brake_time=\"" + vs_brake_t + "\" "
@@ -504,7 +519,12 @@ std::string commandToXmlNode(const std::string& command) {
             "recovery_total_timeout=\"" + vs_recovery_timeout + "\" "
             "depth_timeout=\"" + vs_depth_timeout + "\" depth_min_points=\"" + vs_depth_min_points + "\" "
             "target_depth_band=\"" + vs_target_depth_band + "\" target_depth_quantile=\"" + vs_target_depth_quantile + "\" "
-            "target_bbox_margin_px=\"" + vs_target_bbox_margin + "\" corridor_half_width=\"" + vs_corridor_w + "\" "
+            "target_bbox_margin_px=\"" + vs_target_bbox_margin + "\" "
+            "target_zone_near_distance=\"" + vs_target_zone_near + "\" target_zone_far_ratio=\"" + vs_target_zone_far + "\" "
+            "target_zone_lateral_limit=\"" + vs_target_zone_lateral + "\" target_zone_fallback_area_ratio=\"" + vs_target_zone_fallback + "\" "
+            "target_closing_speed_threshold=\"" + vs_target_closing_speed + "\" target_ttc_threshold=\"" + vs_target_ttc + "\" "
+            "target_intercept_margin_px=\"" + vs_target_intercept_margin + "\" target_carrier_depth_margin=\"" + vs_target_carrier_depth + "\" "
+            "target_carrier_below_margin_px=\"" + vs_target_carrier_below + "\" corridor_half_width=\"" + vs_corridor_w + "\" "
             "corridor_half_height=\"" + vs_corridor_h + "\" "
             "emergency_clearance=\"" + vs_emergency_clear + "\" contact_distance=\"" + vs_contact_dist + "\" "
             "braking_acceleration=\"" + vs_braking_accel + "\" control_latency=\"" + vs_control_latency + "\" "

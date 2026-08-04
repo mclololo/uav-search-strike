@@ -28,7 +28,7 @@
       <!-- 9.5 掉头朝向C区（从yaw≈π转到yaw=0，面向+x方向） -->
       <GoTo goal="0.2;0.0;0.0" frame="1" yaw="0.0"/>
       <!-- 10. 规划飞到C区右端，准备打击B区气球 -->
-      <PlanningControl goal="5.3;-2.0;1.0"/>
+      <PlanningControl goal="5.3;-2.50;1.0"/>
       <!-- ============================================================ -->
       <!-- 打击气球阶段 (默认: A区红球)                                   -->
       <!-- 后续由大模型决定打击目标，需替换以下参数:                         -->
@@ -36,18 +36,16 @@
       <!--   C区蓝球: pos=5.3;1.0;1.0  yaw=π(3.14159) 朝+y 左转90°     -->
       <!--   B区紫球: pos=5.3;-1.0;1.0 yaw=-π/2(-1.5708) 朝-y            -->
       <!-- ============================================================ -->
-      <!-- 11. 在固定XY下降到搜索高度，并确认位置与初始航向 -->
-      <PlanningControl goal="5.3;-2.0;0.70"/>
-      <GoTo goal="5.3;-2.0;0.70" yaw="3.14159" tolerance="0.10" yaw_tolerance="0.08" yaw_rate="0.35"/>
-      <GoTo goal="5.3;-2.0;0.40" yaw="3.14159" tolerance="0.10" yaw_tolerance="0.08" yaw_rate="0.35"/>
-      <Delay delay_msec="1000"><AlwaysSuccess/></Delay>
+      <!-- 11. 到0.70m搜索点；识别目标后再立即下降 -->
+      <PlanningControl goal="5.3;-2.50;0.70"/>
+      <GoTo goal="5.3;-2.50;0.70" yaw="3.14159" tolerance="0.10" yaw_tolerance="0.08" yaw_rate="0.35"/>
       <!-- 12. 跟踪并撞击B区气球 -->
       <!-- 低空搜索，发现后完成侧桨偏置对准并沿B区水平直线冲刺 -->
       <ForceSuccess>
       <RetryUntilSuccessful num_attempts="1">
         <Sequence name="AcquireAndHit">
           <!-- 主动旋转扫描，先把目标拉进视野 -->
-          <ScanForTarget object_name="purple_balloon" confidence_threshold="0.6" yaw_rate="0.0" timeout="45.0" center_gate_x_ratio="0.35" center_gate_y_ratio="0.45" stable_frames="1" detection_hold_time="0.1" phase_duration="2.5" lateral_velocity="0.0" backward_velocity="0.0" />
+          <ScanForTarget object_name="purple_balloon" confidence_threshold="0.6" yaw_rate="0.0" timeout="45.0" center_gate_x_ratio="0.35" center_gate_y_ratio="0.45" stable_frames="1" detection_hold_time="0.0" phase_duration="2.5" lateral_velocity="0.0" backward_velocity="0.0" />
 
           <!-- 跟踪并撞击气球 -->
             <Timeout msec="50000">
@@ -70,16 +68,18 @@
                     forward_velocity="0.35"
                     sprint_velocity="0.85"
                     sprint_time="6.0"
-                    sprint_lock_visual_correction="true"
+                    sprint_lock_visual_correction="false"
                     hit_offset_x="-10.0"
                     hit_offset_reference_depth="0.80"
                     max_hit_offset_ratio="0.35"
                     corridor_reference_length="5.20"
+                    corridor_yaw="3.14159"
+                    target_zone_far_ratio="0.78"
                     sprint_limit_ratio="0.78"
                     wait_entry_ratio="0.0"
                     strike_altitude="0.40"
                     descent_velocity="0.22"
-                    descent_tolerance="0.05"
+                    descent_tolerance="0.02"
                     descent_timeout="4.0"
                     heading_hold_gain="1.5"
                     heading_hold_max_rate="0.30"
@@ -107,7 +107,7 @@
                     sprint_altitude_hold_gain="1.5"
                     sprint_max_vertical_correction="0.08"
                     sprint_target_loss_grace="0.60"
-                    depth_timeout="0.5"
+                    depth_timeout="0.20"
                     depth_min_points="8"
                     target_depth_band="0.22"
                     corridor_half_width="0.38"

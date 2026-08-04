@@ -17,6 +17,8 @@ struct CloudPoint {
     float x;
     float y;
     float z;
+    float image_x;
+    float image_y;
     bool in_target;
 };
 
@@ -90,6 +92,7 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("descent_tolerance", 0.05, "冲刺高度容差"),
         InputPort<double>("descent_timeout", 4.0, "下降阶段超时"),
         InputPort<double>("corridor_reference_length", 5.20, "搜索点至外边界参考长度"),
+        InputPort<double>("corridor_yaw", "打击区无障碍长轴航向"),
         InputPort<double>("adaptive_corridor_min_length", 1.50, "兼容旧XML，不参与冲刺准入"),
         InputPort<double>("sprint_limit_ratio", 0.78, "冲刺区占参考长度比例"),
         InputPort<double>("wait_entry_ratio", 0.35, "进入等待区的剩余区间比例"),
@@ -101,12 +104,21 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("wait_timeout", 12.0, "等待小车折返超时"),
         InputPort<double>("wait_contact_distance", 0.42, "等待碰撞接触距离"),
 
-        InputPort<double>("depth_timeout", 0.50, "深度点云新鲜度上限"),
+        InputPort<double>("depth_timeout", 0.20, "深度点云新鲜度上限"),
         InputPort<double>("depth_min_valid_range", 0.12, "最小有效深度"),
         InputPort<int>("depth_min_points", 8, "有效点数下限"),
         InputPort<double>("target_depth_band", 0.22, "目标气球深度带"),
         InputPort<double>("target_depth_quantile", 0.30, "目标前景深度分位数"),
         InputPort<double>("target_bbox_margin_px", 5.0, "目标深度掩膜像素余量"),
+        InputPort<double>("target_zone_near_distance", 0.15, "气球冲刺区近端越界容差"),
+        InputPort<double>("target_zone_far_ratio", 0.80, "气球冲刺区远端占走廊比例"),
+        InputPort<double>("target_zone_lateral_limit", 0.55, "气球冲刺区横向半宽"),
+        InputPort<double>("target_zone_fallback_area_ratio", 0.002, "无深度时目标区面积后备阈值"),
+        InputPort<double>("target_closing_speed_threshold", 0.15, "快速接近判据"),
+        InputPort<double>("target_ttc_threshold", 2.0, "紧急打击预计接触时间"),
+        InputPort<double>("target_intercept_margin_px", 12.0, "左桨打击带像素余量"),
+        InputPort<double>("target_carrier_depth_margin", 0.55, "目标载车深度关联范围"),
+        InputPort<double>("target_carrier_below_margin_px", 120.0, "目标载车向下关联范围"),
         InputPort<double>("corridor_half_width", 0.38, "深度走廊半宽"),
         InputPort<double>("corridor_half_height", 0.32, "深度走廊半高"),
         InputPort<double>("approach_clearance", 0.65, "兼容旧XML，不参与冲刺准入"),
@@ -136,7 +148,7 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("post_hit_climb_timeout", 0.0, "兼容旧XML"),
         InputPort<double>("safety_margin", 0.40, "兼容旧XML"),
         InputPort<double>("sprint_lift_velocity", 0.0, "兼容旧XML"),
-        InputPort<bool>("sprint_lock_visual_correction", true, "冲刺阶段锁定航向以保持直线"),
+        InputPort<bool>("sprint_lock_visual_correction", false, "冲刺阶段是否锁定视觉航向修正"),
         InputPort<double>("post_hit_brake_velocity", 0.0, "兼容旧XML"),
         InputPort<double>("post_hit_brake_time", 1.80, "兼容旧XML"),
         InputPort<double>("post_hit_lift_height", 0.0, "兼容旧XML"),
@@ -199,6 +211,11 @@ NodeStatus VisualServo::onStart() {
     descent_tolerance_ = getInput<double>("descent_tolerance").value();
     descent_timeout_ = getInput<double>("descent_timeout").value();
     corridor_reference_length_ = getInput<double>("corridor_reference_length").value();
+    const auto corridor_yaw = getInput<double>("corridor_yaw");
+    has_configured_corridor_yaw_ = corridor_yaw && std::isfinite(corridor_yaw.value());
+    if (has_configured_corridor_yaw_) {
+        configured_corridor_yaw_ = normalizeYaw(corridor_yaw.value());
+    }
     sprint_limit_ratio_ = std::clamp(getInput<double>("sprint_limit_ratio").value(), 0.20, 0.95);
     wait_entry_ratio_ = std::clamp(getInput<double>("wait_entry_ratio").value(), 0.0, 0.90);
     heading_hold_gain_ = getInput<double>("heading_hold_gain").value();
@@ -213,6 +230,24 @@ NodeStatus VisualServo::onStart() {
     target_depth_band_ = getInput<double>("target_depth_band").value();
     target_depth_quantile_ = std::clamp(getInput<double>("target_depth_quantile").value(), 0.05, 0.50);
     target_bbox_margin_px_ = getInput<double>("target_bbox_margin_px").value();
+    target_zone_near_distance_ = std::max(
+        0.0, getInput<double>("target_zone_near_distance").value());
+    target_zone_far_ratio_ = std::clamp(
+        getInput<double>("target_zone_far_ratio").value(), 0.20, 1.0);
+    target_zone_lateral_limit_ = std::max(
+        0.10, getInput<double>("target_zone_lateral_limit").value());
+    target_zone_fallback_area_ratio_ = std::max(
+        0.0, getInput<double>("target_zone_fallback_area_ratio").value());
+    target_closing_speed_threshold_ = std::max(
+        0.0, getInput<double>("target_closing_speed_threshold").value());
+    target_ttc_threshold_ = std::max(
+        0.1, getInput<double>("target_ttc_threshold").value());
+    target_intercept_margin_px_ = std::max(
+        0.0, getInput<double>("target_intercept_margin_px").value());
+    target_carrier_depth_margin_ = std::max(
+        0.0, getInput<double>("target_carrier_depth_margin").value());
+    target_carrier_below_margin_px_ = std::max(
+        0.0, getInput<double>("target_carrier_below_margin_px").value());
     corridor_half_width_ = getInput<double>("corridor_half_width").value();
     corridor_half_height_ = getInput<double>("corridor_half_height").value();
     emergency_clearance_ = getInput<double>("emergency_clearance").value();
@@ -250,11 +285,19 @@ NodeStatus VisualServo::onStart() {
     node_start_time_ = state_start_time_ = prev_time_ = ros::Time::now();
     stable_track_start_ = ros::Time(0);
     brake_hold_start_ = ros::Time(0);
+    {
+        std::lock_guard<std::mutex> lock(depth_mutex_);
+        target_closing_speed_ = 0.0;
+        previous_target_depth_ = std::numeric_limits<double>::infinity();
+        previous_target_depth_time_ = ros::Time(0);
+    }
 
     geometry_valid_ = fcu_odom_ptr && fcu_odom_ptr->header.stamp != ros::Time(0);
     if (geometry_valid_) {
         corridor_origin_ = fcu_odom_ptr->pose.pose.position;
-        route_yaw_ = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
+        route_yaw_ = has_configured_corridor_yaw_
+            ? configured_corridor_yaw_
+            : PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
         if (fcu_odom_ptr->pose.pose.position.z > strike_altitude_ + descent_tolerance_) {
             state_ = ServoState::DESCENDING;
         }
@@ -275,7 +318,9 @@ NodeStatus VisualServo::onRunning() {
 
     if (!geometry_valid_ && fcu_odom_ptr && fcu_odom_ptr->header.stamp != ros::Time(0)) {
         corridor_origin_ = fcu_odom_ptr->pose.pose.position;
-        route_yaw_ = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
+        route_yaw_ = has_configured_corridor_yaw_
+            ? configured_corridor_yaw_
+            : PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
         geometry_valid_ = true;
         if (fcu_odom_ptr->pose.pose.position.z > strike_altitude_ + descent_tolerance_) {
             state_ = ServoState::DESCENDING;
@@ -363,10 +408,8 @@ NodeStatus VisualServo::onRunning() {
         case ServoState::DESCENDING: {
             const double altitude = fcu_odom_ptr->pose.pose.position.z;
             if (altitude <= strike_altitude_ + descent_tolerance_) {
-                state_ = ServoState::APPROACHING;
-                state_start_time_ = now;
-                publishDebugEvent("strike_state", "DESCENDING -> APPROACHING");
-                break;
+                enterSprint(now);
+                return executeSprint(true, target_age, area_ratio, yaw_rate);
             }
             if ((now - state_start_time_).toSec() >= descent_timeout_) {
                 return startBrake(BrakeOutcome::ABORT, "descent timeout");
@@ -378,51 +421,19 @@ NodeStatus VisualServo::onRunning() {
 
         case ServoState::APPROACHING: {
             const double altitude = fcu_odom_ptr->pose.pose.position.z;
-            const double vertical_speed = std::abs(fcu_odom_ptr->twist.twist.linear.z);
-            const double horizontal_error = std::abs(target.center_x - desired_center_x);
-            const double vertical_error = std::abs(
-                target.center_y - (img_cy_ + hit_offset_y_));
-            const double altitude_error = std::abs(altitude - strike_altitude_);
-
-            const double alignment_vz = std::clamp(
-                sprint_altitude_hold_gain_ * (strike_altitude_ - altitude),
-                -sprint_max_vertical_correction_, sprint_max_vertical_correction_);
-            publishGuardedVelocity(0, 0, alignment_vz, alignment_yaw_rate, 0.0, false);
-
-            // A rapidly growing target is already close to the strike line. In that case,
-            // use its visible extent instead of requiring its moving center to stay inside
-            // a fixed pixel gate long enough for the cart to pass the aircraft.
-            const bool close_target = area_ratio >= approach_area_threshold_;
-            const double horizontal_tolerance = sprint_alignment_tolerance_px_ +
-                (close_target ? std::min(0.5 * std::abs(target.width), 0.20 * img_w_) : 0.0);
-            const double vertical_tolerance = sprint_vertical_alignment_tolerance_px_ +
-                (close_target ? std::min(0.25 * std::abs(target.height), 0.15 * img_h_) : 0.0);
-
-            const bool strike_ready =
-                horizontal_error <= horizontal_tolerance &&
-                vertical_error <= vertical_tolerance &&
-                altitude_error <= sprint_altitude_tolerance_ &&
-                vertical_speed <= sprint_vertical_speed_tolerance_;
-            if (strike_ready) {
-                ++align_stable_frames_;
-                if (stable_track_start_.isZero()) stable_track_start_ = now;
-            } else {
-                align_stable_frames_ = 0;
-                stable_track_start_ = ros::Time(0);
+            if (altitude > strike_altitude_ + descent_tolerance_) {
+                state_ = ServoState::DESCENDING;
+                state_start_time_ = now;
+                publishGuardedVelocity(0, 0, -std::abs(descent_velocity_),
+                                       alignment_yaw_rate, 0.0, false);
+                publishDebugEvent("strike_state", "APPROACHING -> DESCENDING");
+                break;
             }
-            ROS_INFO_THROTTLE(0.5,
-                              "[%s]: STRIKE READY xerr=%.1f/%.1fpx yerr=%.1f/%.1fpx z=%.2f/%.2f vz=%.2f close=%d stable=%d/%d",
-                              name().c_str(), horizontal_error, horizontal_tolerance,
-                              vertical_error, vertical_tolerance, altitude, strike_altitude_,
-                              vertical_speed, close_target, align_stable_frames_,
-                              sprint_alignment_stable_frames_);
-            const bool stable_long_enough = !stable_track_start_.isZero() &&
-                (now - stable_track_start_).toSec() >= strike_stable_time_;
-            if ((close_target && strike_ready) ||
-                (align_stable_frames_ >= sprint_alignment_stable_frames_ && stable_long_enough)) {
-                enterSprint(now);
-            }
-            break;
+
+            // Detection has already been accepted by ScanForTarget. Descent provides the
+            // only strike-entry delay; once at propeller height, launch immediately.
+            enterSprint(now);
+            return executeSprint(true, target_age, area_ratio, yaw_rate);
         }
 
         case ServoState::SPRINTING: {
@@ -456,8 +467,20 @@ bool VisualServo::getTargetSnapshot(PixelTarget& target, double& age) const {
 }
 
 double VisualServo::desiredHitCenterX() const {
+    double hard_clearance;
+    double target_depth;
+    double target_lateral;
+    double target_closing_speed;
+    double depth_scale = 1.0;
+    if (getDepthSnapshot(hard_clearance, target_depth, target_lateral,
+                         target_closing_speed) &&
+        std::isfinite(target_depth) && target_depth > depth_min_valid_range_) {
+        depth_scale = std::clamp(
+            positiveOr(hit_offset_reference_depth_, 0.80) / target_depth,
+            0.25, 2.0);
+    }
     const double limit = std::clamp(max_hit_offset_ratio_, 0.0, 0.49) * img_w_;
-    return img_cx_ + std::clamp(hit_offset_x_, -limit, limit);
+    return img_cx_ + std::clamp(hit_offset_x_ * depth_scale, -limit, limit);
 }
 
 bool VisualServo::isCentered(const PixelTarget& target, double desired_center_x) const {
@@ -560,12 +583,12 @@ void VisualServo::depthCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& m
                 x < depth_min_valid_range_) {
                 continue;
             }
+            const double image_x = img_cx_ + depth_image_y_sign_ *
+                rgb_focal_px_ * static_cast<double>(y) / x;
+            const double image_y = img_cy_ + depth_image_z_sign_ *
+                rgb_focal_px_ * static_cast<double>(z) / x;
             bool in_target = false;
             if (target_valid) {
-                const double image_x = img_cx_ + depth_image_y_sign_ *
-                    rgb_focal_px_ * static_cast<double>(y) / x;
-                const double image_y = img_cy_ + depth_image_z_sign_ *
-                    rgb_focal_px_ * static_cast<double>(z) / x;
                 const double half_w = 0.5 * target.width + target_bbox_margin_px_;
                 const double half_h = 0.5 * target.height + target_bbox_margin_px_;
                 in_target = image_x >= 0.0 && image_x < img_w_ &&
@@ -573,7 +596,8 @@ void VisualServo::depthCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& m
                             std::abs(image_x - target.center_x) <= half_w &&
                             std::abs(image_y - target.center_y) <= half_h;
             }
-            points.push_back({x, y, z, in_target});
+            points.push_back({x, y, z, static_cast<float>(image_x),
+                              static_cast<float>(image_y), in_target});
             if (in_target) target_depths.push_back(x);
         }
     } catch (const std::runtime_error& error) {
@@ -604,9 +628,19 @@ void VisualServo::depthCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& m
     double hard_clearance = std::numeric_limits<double>::infinity();
     int hard_points = 0;
     for (const CloudPoint& point : points) {
-        // The detected balloon is the intended contact target, so its whole image mask is
-        // excluded from hard-obstacle braking even if depth/RGB registration is imperfect.
-        if (point.in_target) continue;
+        const double carrier_half_width = std::max(
+            0.75 * std::abs(target.width) + target_bbox_margin_px_, 24.0);
+        const bool target_associated_carrier =
+            target_valid && std::isfinite(balloon_depth) &&
+            std::abs(point.x - balloon_depth) <= target_carrier_depth_margin_ &&
+            std::abs(point.image_x - target.center_x) <= carrier_half_width &&
+            point.image_y >= target.center_y - 0.5 * std::abs(target.height) -
+                                 target_bbox_margin_px_ &&
+            point.image_y <= target.center_y + 0.5 * std::abs(target.height) +
+                                 target_carrier_below_margin_px_;
+        // The balloon and its low carrier are the intended contact assembly. Static
+        // obstacles outside this narrow RGB/depth association remain hard obstacles.
+        if (point.in_target || target_associated_carrier) continue;
         if (std::abs(point.y) <= corridor_half_width_ &&
             std::abs(point.z) <= corridor_half_height_) {
             hard_clearance = std::min(hard_clearance, static_cast<double>(point.x));
@@ -614,20 +648,102 @@ void VisualServo::depthCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& m
         }
     }
 
+    const ros::Time now = ros::Time::now();
+    double balloon_lateral = std::numeric_limits<double>::infinity();
+    if (std::isfinite(balloon_depth) && target_valid) {
+        const double lateral_sign = std::abs(depth_image_y_sign_) > 0.5
+            ? depth_image_y_sign_ : 1.0;
+        balloon_lateral = (target.center_x - img_cx_) * balloon_depth /
+            (lateral_sign * positiveOr(rgb_focal_px_, 320.0));
+    }
+
     std::lock_guard<std::mutex> lock(depth_mutex_);
-    depth_cloud_time_ = ros::Time::now();
+    if (std::isfinite(balloon_depth)) {
+        if (std::isfinite(previous_target_depth_) &&
+            !previous_target_depth_time_.isZero()) {
+            const double dt = (now - previous_target_depth_time_).toSec();
+            if (dt >= 0.01 && dt <= 0.50) {
+                const double raw_closing_speed = std::clamp(
+                    (previous_target_depth_ - balloon_depth) / dt, -3.0, 3.0);
+                target_closing_speed_ = 0.65 * target_closing_speed_ +
+                                        0.35 * raw_closing_speed;
+            }
+        }
+        previous_target_depth_ = balloon_depth;
+        previous_target_depth_time_ = now;
+    } else if (!previous_target_depth_time_.isZero() &&
+               (now - previous_target_depth_time_).toSec() > depth_timeout_) {
+        previous_target_depth_ = std::numeric_limits<double>::infinity();
+        previous_target_depth_time_ = ros::Time(0);
+        target_closing_speed_ = 0.0;
+    }
+
+    depth_cloud_time_ = now;
     depth_frame_valid_ = static_cast<int>(points.size()) >= depth_min_points_;
     hard_front_clearance_ = hard_clearance;
     target_depth_ = balloon_depth;
+    target_lateral_ = balloon_lateral;
     hard_corridor_points_ = hard_points;
 }
 
 bool VisualServo::getDepthSnapshot(double& hard_clearance, double& target_depth) const {
+    double target_lateral;
+    double target_closing_speed;
+    return getDepthSnapshot(hard_clearance, target_depth, target_lateral,
+                            target_closing_speed);
+}
+
+bool VisualServo::getDepthSnapshot(double& hard_clearance, double& target_depth,
+                                   double& target_lateral,
+                                   double& target_closing_speed) const {
     std::lock_guard<std::mutex> lock(depth_mutex_);
     hard_clearance = hard_front_clearance_;
     target_depth = target_depth_;
+    target_lateral = target_lateral_;
+    target_closing_speed = target_closing_speed_;
     return depth_frame_valid_ &&
            (ros::Time::now() - depth_cloud_time_).toSec() <= depth_timeout_;
+}
+
+bool VisualServo::targetInSprintZone(const PixelTarget& target, double area_ratio,
+                                     double& target_depth,
+                                     double& target_longitudinal,
+                                     double& target_lateral,
+                                     double& target_closing_speed) const {
+    double hard_clearance;
+    double body_lateral;
+    target_depth = std::numeric_limits<double>::infinity();
+    target_longitudinal = std::numeric_limits<double>::infinity();
+    target_lateral = std::numeric_limits<double>::infinity();
+    target_closing_speed = 0.0;
+
+    const bool depth_fresh = getDepthSnapshot(
+        hard_clearance, target_depth, body_lateral, target_closing_speed);
+    if (depth_fresh && std::isfinite(target_depth) &&
+        std::isfinite(body_lateral) && geometry_valid_ && fcu_odom_ptr) {
+        const auto& position = fcu_odom_ptr->pose.pose.position;
+        const double yaw = PoseUtils::getYawFromQuat(
+            fcu_odom_ptr->pose.pose.orientation);
+        const double target_world_x = position.x +
+            std::cos(yaw) * target_depth + std::sin(yaw) * body_lateral;
+        const double target_world_y = position.y +
+            std::sin(yaw) * target_depth - std::cos(yaw) * body_lateral;
+        const double dx = target_world_x - corridor_origin_.x;
+        const double dy = target_world_y - corridor_origin_.y;
+        target_longitudinal = std::cos(route_yaw_) * dx +
+                              std::sin(route_yaw_) * dy;
+        target_lateral = std::sin(route_yaw_) * dx -
+                         std::cos(route_yaw_) * dy;
+
+        const double far_limit = corridor_reference_length_ * target_zone_far_ratio_;
+        return target_longitudinal >= -target_zone_near_distance_ &&
+               target_longitudinal <= far_limit &&
+               std::abs(target_lateral) <= target_zone_lateral_limit_;
+    }
+
+    // A stale/missing depth frame must not make a close, valid YOLO target inert.
+    // The fallback is deliberately only used when no target depth can be recovered.
+    return target.is_detected && area_ratio >= target_zone_fallback_area_ratio_;
 }
 
 bool VisualServo::emergencyObstacleDetected() const {
@@ -640,16 +756,28 @@ bool VisualServo::emergencyObstacleDetected() const {
 }
 
 bool VisualServo::boundaryCommandSafe(double vx_body, double vy_body) const {
+    if (std::hypot(vx_body, vy_body) < 1e-3) {
+        return true;
+    }
+
     const auto& position = fcu_odom_ptr->pose.pose.position;
     const double yaw = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
     const double vx_world = std::cos(yaw) * vx_body + std::sin(yaw) * vy_body;
     const double vy_world = std::sin(yaw) * vx_body - std::cos(yaw) * vy_body;
     const double predicted_x = position.x + vx_world * safety_predict_time_;
     const double predicted_y = position.y + vy_world * safety_predict_time_;
-    return predicted_x >= boundary_x_min_ + boundary_margin_ &&
-           predicted_x <= boundary_x_max_ - boundary_margin_ &&
-           predicted_y >= boundary_y_min_ + boundary_margin_ &&
-           predicted_y <= boundary_y_max_ - boundary_margin_;
+    const auto motionSafeOnAxis = [](double current, double predicted,
+                                     double minimum, double maximum) {
+        if (current < minimum) return predicted > current;
+        if (current > maximum) return predicted < current;
+        return predicted >= minimum && predicted <= maximum;
+    };
+    return motionSafeOnAxis(position.x, predicted_x,
+                            boundary_x_min_ + boundary_margin_,
+                            boundary_x_max_ - boundary_margin_) &&
+           motionSafeOnAxis(position.y, predicted_y,
+                            boundary_y_min_ + boundary_margin_,
+                            boundary_y_max_ - boundary_margin_);
 }
 
 bool VisualServo::publishGuardedVelocity(double vx, double vy, double vz, double yaw_rate,
@@ -701,9 +829,10 @@ NodeStatus VisualServo::startBrake(BrakeOutcome outcome, const std::string& reas
 }
 
 void VisualServo::enterSprint(const ros::Time& now) {
-    // Keep the heading that actually completed the side-prop alignment. Returning to the
-    // staging heading here makes a moving target slide away as soon as the sprint starts.
-    route_yaw_ = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
+    // route_yaw_ is captured at the staged search point and defines the obstacle-free
+    // corridor. Visual alignment may turn the aircraft briefly, but must not redefine
+    // that corridor or a long sprint can drift into a frame post or wall.
+    const double current_yaw = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
     corridor_origin_ = fcu_odom_ptr->pose.pose.position;
     corridor_limit_distance_ = corridor_reference_length_ * sprint_limit_ratio_;
     wait_entry_distance_ = corridor_reference_length_ *
@@ -712,8 +841,8 @@ void VisualServo::enterSprint(const ros::Time& now) {
     state_start_time_ = now;
     close_target_seen_ = false;
     publishDebugEvent("strike_state", "APPROACHING -> SPRINTING");
-    ROS_INFO("[%s]: Straight sprint started: yaw=%.2f max_distance=%.2fm z=%.2f vz=%.2f",
-             name().c_str(), route_yaw_, corridor_limit_distance_,
+    ROS_INFO("[%s]: Straight sprint started: corridor_yaw=%.2f current_yaw=%.2f max_distance=%.2fm z=%.2f vz=%.2f",
+             name().c_str(), route_yaw_, current_yaw, corridor_limit_distance_,
              fcu_odom_ptr->pose.pose.position.z,
              fcu_odom_ptr->twist.twist.linear.z);
 }
@@ -744,9 +873,9 @@ NodeStatus VisualServo::executeSprint(bool target_visible, double target_age,
     if (!boundaryCommandSafe(sprint_velocity_, 0.0)) {
         return startBrake(BrakeOutcome::MISS_TO_WAIT, "field boundary braking point reached");
     }
-    if (!target_visible && emergencyObstacleDetected()) {
+    if (emergencyObstacleDetected()) {
         return startBrake(BrakeOutcome::MISS_TO_WAIT,
-                          "hard obstacle detected during blind sprint grace");
+                          "hard obstacle detected in sprint corridor");
     }
     const double altitude = fcu_odom_ptr->pose.pose.position.z;
     if (altitude < min_attack_altitude_) {

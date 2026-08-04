@@ -96,23 +96,26 @@
     <param name="balloon_zone_A/hit_offset_x" value="35.0" type="double"/>
     <param name="balloon_zone_A/corridor_reference_length" value="5.20" type="double"/>
     <param name="balloon_zone_A/sprint_limit_ratio" value="0.78" type="double"/>
+    <param name="balloon_zone_A/target_zone_far_ratio" value="0.78" type="double"/>
     <param name="balloon_zone_A/wait_entry_ratio" value="0.35" type="double"/>
     <!-- B区 (紫色气球) -->
-    <param name="balloon_zone_B/approach_pos" value="5.3;-2.0;1.0" type="str"/>
-    <param name="balloon_zone_B/goal"         value="5.3;-2.0;0.70" type="str"/>
-    <param name="balloon_zone_B/search_pos"   value="5.3;-2.0;0.40" type="str"/>
+    <param name="balloon_zone_B/approach_pos" value="5.3;-2.50;1.0" type="str"/>
+    <param name="balloon_zone_B/goal"         value="5.3;-2.50;0.70" type="str"/>
+    <param name="balloon_zone_B/search_pos"   value="5.3;-2.50;0.70" type="str"/>
     <param name="balloon_zone_B/yaw"          value="3.14159"       type="double"/>
     <param name="balloon_zone_B/hit_offset_x" value="-10.0" type="double"/>
     <param name="balloon_zone_B/corridor_reference_length" value="5.20" type="double"/>
     <param name="balloon_zone_B/sprint_limit_ratio" value="0.78" type="double"/>
+    <param name="balloon_zone_B/target_zone_far_ratio" value="0.78" type="double"/>
     <param name="balloon_zone_B/wait_entry_ratio" value="0.0" type="double"/>
     <!-- C区 (蓝色气球) -->
     <param name="balloon_zone_C/approach_pos" value="5.3;1.0;1.0"  type="str"/>
     <param name="balloon_zone_C/goal"         value="5.3;1.0;0.70" type="str"/>
     <param name="balloon_zone_C/yaw"          value="-1.5708"       type="double"/>
-    <param name="balloon_zone_C/hit_offset_x" value="-45.0" type="double"/>
+    <param name="balloon_zone_C/hit_offset_x" value="-50.0" type="double"/>
     <param name="balloon_zone_C/corridor_reference_length" value="5.00" type="double"/>
     <param name="balloon_zone_C/sprint_limit_ratio" value="0.76" type="double"/>
+    <param name="balloon_zone_C/target_zone_far_ratio" value="0.76" type="double"/>
     <param name="balloon_zone_C/wait_entry_ratio" value="0.35" type="double"/>
 
     <!-- ============================================ -->
@@ -151,7 +154,7 @@
     <param name="visual_servo/sprint_altitude_hold_gain" value="1.5" type="double"/>
     <param name="visual_servo/sprint_max_vertical_correction" value="0.08" type="double"/>
     <param name="visual_servo/sprint_target_loss_grace"  value="0.60"   type="double"/>
-    <!-- 搜索前已在固定XY降至该高度；发现目标后完成侧桨偏置对准再锁航向冲刺 -->
+    <!-- 在0.70m发现目标后立即下降，并同步完成侧桨偏置对准 -->
     <param name="visual_servo/strike_altitude"            value="0.40"   type="double"/>
     <param name="visual_servo/descent_velocity"           value="0.22"   type="double"/>
     <param name="visual_servo/descent_tolerance"          value="0.05"   type="double"/>
@@ -161,12 +164,21 @@
     <param name="visual_servo/wait_velocity"              value="0.16"   type="double"/>
     <param name="visual_servo/wait_timeout"               value="12.0"   type="double"/>
     <param name="visual_servo/wait_contact_distance"      value="0.42"   type="double"/>
-    <!-- 深度点云只软化目标气球表面；墙、地面和车体仍是硬障碍 -->
-    <param name="visual_servo/depth_timeout"              value="0.5"    type="double"/>
+    <!-- 深度点云关联气球及其低位载车；墙、地面和立柱仍是硬障碍 -->
+    <param name="visual_servo/depth_timeout"              value="0.20"   type="double"/>
     <param name="visual_servo/depth_min_points"           value="8"      type="int"/>
     <param name="visual_servo/target_depth_band"          value="0.22"   type="double"/>
     <param name="visual_servo/target_depth_quantile"      value="0.30"   type="double"/>
     <param name="visual_servo/target_bbox_margin_px"      value="5.0"    type="double"/>
+    <param name="visual_servo/target_zone_near_distance"  value="0.15"   type="double"/>
+    <param name="visual_servo/target_zone_far_ratio"      value="0.80"   type="double"/>
+    <param name="visual_servo/target_zone_lateral_limit"  value="0.55"   type="double"/>
+    <param name="visual_servo/target_zone_fallback_area_ratio" value="0.002" type="double"/>
+    <param name="visual_servo/target_closing_speed_threshold" value="0.15" type="double"/>
+    <param name="visual_servo/target_ttc_threshold"       value="2.0"    type="double"/>
+    <param name="visual_servo/target_intercept_margin_px" value="12.0"   type="double"/>
+    <param name="visual_servo/target_carrier_depth_margin" value="0.55"  type="double"/>
+    <param name="visual_servo/target_carrier_below_margin_px" value="120.0" type="double"/>
     <param name="visual_servo/corridor_half_width"        value="0.38"   type="double"/>
     <param name="visual_servo/corridor_half_height"       value="0.32"   type="double"/>
     <param name="visual_servo/emergency_clearance"        value="0.48"   type="double"/>
@@ -198,14 +210,14 @@
     <param name="balloon_scan/center_gate_x_ratio"  value="0.35" type="double"/>
     <param name="balloon_scan/center_gate_y_ratio"  value="0.45" type="double"/>
     <param name="balloon_scan/stable_frames"        value="1"    type="int"/>
-    <param name="balloon_scan/detection_hold_time"  value="0.1"  type="double"/>
+    <param name="balloon_scan/detection_hold_time"  value="0.0"  type="double"/>
     <param name="balloon_scan/phase_duration"       value="2.5"  type="double"/>
     <param name="balloon_scan/lateral_velocity"     value="0.0" type="double"/>
     <param name="balloon_scan/backward_velocity"    value="0.0" type="double"/>
     <param name="balloon_scan/retry_attempts"       value="1"    type="int"/>
     <param name="balloon_scan/staging_tolerance"     value="0.10" type="double"/>
     <param name="balloon_scan/staging_yaw_tolerance" value="0.08" type="double"/>
-    <param name="balloon_scan/staging_settle_ms"     value="1000" type="int"/>
+    <param name="balloon_scan/staging_settle_ms"     value="0"    type="int"/>
 
 
     <!-- 运行任务节点（LLM 模式） -->

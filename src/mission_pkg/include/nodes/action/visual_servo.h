@@ -87,7 +87,7 @@ private:
     double forward_velocity_{0.35};
     double sprint_velocity_{0.85};
     double sprint_time_{6.0};
-    bool sprint_lock_visual_correction_{true};
+    bool sprint_lock_visual_correction_{false};
     double hit_offset_x_{45.0};
     double hit_offset_y_{0.0};
     double hit_offset_reference_depth_{0.80};
@@ -113,6 +113,8 @@ private:
     double descent_tolerance_{0.05};
     double descent_timeout_{4.0};
     double corridor_reference_length_{5.20};
+    double configured_corridor_yaw_{0.0};
+    bool has_configured_corridor_yaw_{false};
     double sprint_limit_ratio_{0.78};
     double wait_entry_ratio_{0.35};
     double heading_hold_gain_{1.5};
@@ -136,13 +138,26 @@ private:
     bool depth_frame_valid_{false};
     double hard_front_clearance_{std::numeric_limits<double>::infinity()};
     double target_depth_{std::numeric_limits<double>::infinity()};
+    double target_lateral_{std::numeric_limits<double>::infinity()};
+    double target_closing_speed_{0.0};
+    double previous_target_depth_{std::numeric_limits<double>::infinity()};
+    ros::Time previous_target_depth_time_;
     int hard_corridor_points_{0};
-    double depth_timeout_{0.50};
+    double depth_timeout_{0.20};
     double depth_min_valid_range_{0.12};
     int depth_min_points_{8};
     double target_depth_band_{0.22};
     double target_depth_quantile_{0.30};
     double target_bbox_margin_px_{5.0};
+    double target_zone_near_distance_{0.15};
+    double target_zone_far_ratio_{0.80};
+    double target_zone_lateral_limit_{0.55};
+    double target_zone_fallback_area_ratio_{0.002};
+    double target_closing_speed_threshold_{0.15};
+    double target_ttc_threshold_{2.0};
+    double target_intercept_margin_px_{12.0};
+    double target_carrier_depth_margin_{0.55};
+    double target_carrier_below_margin_px_{120.0};
     double corridor_half_width_{0.38};
     double corridor_half_height_{0.32};
     double emergency_clearance_{0.48};
@@ -179,6 +194,11 @@ private:
 
     void depthCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& msg);
     bool getDepthSnapshot(double& hard_clearance, double& target_depth) const;
+    bool getDepthSnapshot(double& hard_clearance, double& target_depth,
+                          double& target_lateral, double& target_closing_speed) const;
+    bool targetInSprintZone(const PixelTarget& target, double area_ratio,
+                            double& target_depth, double& target_longitudinal,
+                            double& target_lateral, double& target_closing_speed) const;
     bool emergencyObstacleDetected() const;
     bool boundaryCommandSafe(double vx_body, double vy_body) const;
     bool publishGuardedVelocity(double vx, double vy, double vz, double yaw_rate,
