@@ -404,6 +404,8 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_heading_rate = std::to_string(getDbl("visual_servo/heading_hold_max_rate", 0.30));
         std::string vs_wait_velocity = std::to_string(getDbl("visual_servo/wait_velocity", 0.16));
         std::string vs_wait_timeout = std::to_string(getDbl("visual_servo/wait_timeout", 12.0));
+        std::string vs_wait_no_target_timeout = std::to_string(
+            getDbl("visual_servo/wait_no_target_timeout", 0.5));
         std::string vs_wait_contact = std::to_string(getDbl("visual_servo/wait_contact_distance", 0.42));
         std::string vs_depth_timeout = std::to_string(getDbl("visual_servo/depth_timeout", 0.20));
         std::string vs_depth_min_points = std::to_string((int)getDbl("visual_servo/depth_min_points", 8));
@@ -468,7 +470,7 @@ std::string commandToXmlNode(const std::string& command) {
             "      <PlanningControl goal=\"" + goto_pos + "\"/>\n"
             "      <!-- 确认搜索位置和走廊航向，未到位不得搜索 -->\n"
             "      <GoTo goal=\"" + goto_pos + "\" yaw=\"" + yaw + "\" tolerance=\"" + staging_tolerance +
-            "\" yaw_tolerance=\"" + staging_yaw_tolerance + "\" yaw_rate=\"0.35\"/>\n"
+            "\" yaw_tolerance=\"" + staging_yaw_tolerance + "\" yaw_rate=\"0.50\"/>\n"
             + staging_settle +
             "      <!-- 主动扫描+跟踪；异常退出先撤离，再重新搜索 -->\n"
             "      <ForceSuccess>\n"
@@ -513,6 +515,7 @@ std::string commandToXmlNode(const std::string& command) {
             "descent_tolerance=\"" + vs_descent_tolerance + "\" descent_timeout=\"" + vs_descent_timeout + "\" "
             "heading_hold_gain=\"" + vs_heading_gain + "\" heading_hold_max_rate=\"" + vs_heading_rate + "\" "
             "wait_velocity=\"" + vs_wait_velocity + "\" wait_timeout=\"" + vs_wait_timeout + "\" "
+            "wait_no_target_timeout=\"" + vs_wait_no_target_timeout + "\" "
             "wait_contact_distance=\"" + vs_wait_contact + "\" "
             "recovery_delay=\"" + vs_recovery_delay + "\" recovery_backoff_velocity=\"" + vs_recovery_backoff_v + "\" "
             "recovery_backoff_time=\"" + vs_recovery_backoff_t + "\" recovery_yaw_rate=\"" + vs_recovery_yaw + "\" "

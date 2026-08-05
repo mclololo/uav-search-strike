@@ -93,9 +93,9 @@
     <param name="balloon_zone_A/approach_pos" value="5.3;1.0;1.0"  type="str"/>
     <param name="balloon_zone_A/goal"         value="5.3;1.0;0.70" type="str"/>
     <param name="balloon_zone_A/yaw"          value="3.14159"       type="double"/>
-    <param name="balloon_zone_A/hit_offset_x" value="35.0" type="double"/>
+    <param name="balloon_zone_A/hit_offset_x" value="55.0" type="double"/>
     <param name="balloon_zone_A/corridor_reference_length" value="5.20" type="double"/>
-    <param name="balloon_zone_A/sprint_limit_ratio" value="0.78" type="double"/>
+    <param name="balloon_zone_A/sprint_limit_ratio" value="0.86" type="double"/>
     <param name="balloon_zone_A/target_zone_far_ratio" value="0.78" type="double"/>
     <param name="balloon_zone_A/wait_entry_ratio" value="0.35" type="double"/>
     <!-- B区 (紫色气球) -->
@@ -103,7 +103,7 @@
     <param name="balloon_zone_B/goal"         value="5.3;-2.50;0.70" type="str"/>
     <param name="balloon_zone_B/search_pos"   value="5.3;-2.50;0.70" type="str"/>
     <param name="balloon_zone_B/yaw"          value="3.14159"       type="double"/>
-    <param name="balloon_zone_B/hit_offset_x" value="-10.0" type="double"/>
+    <param name="balloon_zone_B/hit_offset_x" value="-5.0" type="double"/>
     <param name="balloon_zone_B/corridor_reference_length" value="5.20" type="double"/>
     <param name="balloon_zone_B/sprint_limit_ratio" value="0.78" type="double"/>
     <param name="balloon_zone_B/target_zone_far_ratio" value="0.78" type="double"/>
@@ -112,7 +112,7 @@
     <param name="balloon_zone_C/approach_pos" value="5.3;1.0;1.0"  type="str"/>
     <param name="balloon_zone_C/goal"         value="5.3;1.0;0.70" type="str"/>
     <param name="balloon_zone_C/yaw"          value="-1.5708"       type="double"/>
-    <param name="balloon_zone_C/hit_offset_x" value="-50.0" type="double"/>
+    <param name="balloon_zone_C/hit_offset_x" value="-40.0" type="double"/>
     <param name="balloon_zone_C/corridor_reference_length" value="5.00" type="double"/>
     <param name="balloon_zone_C/sprint_limit_ratio" value="0.76" type="double"/>
     <param name="balloon_zone_C/target_zone_far_ratio" value="0.76" type="double"/>
@@ -130,7 +130,7 @@
     <param name="visual_servo/forward_velocity"         value="0.35"  type="double"/>
     <param name="visual_servo/sprint_velocity"          value="0.85"  type="double"/>
     <param name="visual_servo/sprint_time"              value="6.0"   type="double"/>
-    <param name="visual_servo/hit_offset_x"             value="35.0"  type="double"/>
+    <param name="visual_servo/hit_offset_x"             value="50.0"  type="double"/>
     <param name="visual_servo/hit_offset_y"             value="0.0"   type="double"/>
     <param name="visual_servo/hit_offset_reference_depth" value="0.80" type="double"/>
     <param name="visual_servo/max_hit_offset_ratio"       value="0.35" type="double"/>
@@ -163,6 +163,7 @@
     <param name="visual_servo/heading_hold_max_rate"      value="0.30"   type="double"/>
     <param name="visual_servo/wait_velocity"              value="0.16"   type="double"/>
     <param name="visual_servo/wait_timeout"               value="12.0"   type="double"/>
+    <param name="visual_servo/wait_no_target_timeout"     value="0.5"    type="double"/>
     <param name="visual_servo/wait_contact_distance"      value="0.42"   type="double"/>
     <!-- 深度点云关联气球及其低位载车；墙、地面和立柱仍是硬障碍 -->
     <param name="visual_servo/depth_timeout"              value="0.20"   type="double"/>
@@ -216,7 +217,7 @@
     <param name="balloon_scan/backward_velocity"    value="0.0" type="double"/>
     <param name="balloon_scan/retry_attempts"       value="1"    type="int"/>
     <param name="balloon_scan/staging_tolerance"     value="0.10" type="double"/>
-    <param name="balloon_scan/staging_yaw_tolerance" value="0.08" type="double"/>
+    <param name="balloon_scan/staging_yaw_tolerance" value="0.15" type="double"/>
     <param name="balloon_scan/staging_settle_ms"     value="0"    type="int"/>
 
 

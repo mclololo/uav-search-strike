@@ -49,6 +49,7 @@ private:
     ros::Time stable_track_start_;
     ros::Time brake_hold_start_;
     ros::Time settle_start_time_;
+    ros::Time wait_last_target_time_;
     bool has_ever_received_data_{false};
     bool close_target_seen_{false};
     double max_area_ratio_{0.0};
@@ -121,6 +122,7 @@ private:
     double heading_hold_max_rate_{0.30};
     double wait_velocity_{0.16};
     double wait_timeout_{12.0};
+    double wait_no_target_timeout_{0.5};
     double wait_contact_distance_{0.42};
 
     double brake_speed_threshold_{0.12};

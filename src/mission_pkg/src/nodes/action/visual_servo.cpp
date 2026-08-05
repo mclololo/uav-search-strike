@@ -102,6 +102,8 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("heading_hold_max_rate", 0.30, "直线航向最大修正角速度"),
         InputPort<double>("wait_velocity", 0.16, "进入等待区速度"),
         InputPort<double>("wait_timeout", 12.0, "等待小车折返超时"),
+        InputPort<double>("wait_no_target_timeout", 0.5,
+                          "等待区连续未检测到气球时的返航超时"),
         InputPort<double>("wait_contact_distance", 0.42, "等待碰撞接触距离"),
 
         InputPort<double>("depth_timeout", 0.20, "深度点云新鲜度上限"),
@@ -222,6 +224,8 @@ NodeStatus VisualServo::onStart() {
     heading_hold_max_rate_ = getInput<double>("heading_hold_max_rate").value();
     wait_velocity_ = getInput<double>("wait_velocity").value();
     wait_timeout_ = getInput<double>("wait_timeout").value();
+    wait_no_target_timeout_ = std::max(
+        0.0, getInput<double>("wait_no_target_timeout").value());
     wait_contact_distance_ = getInput<double>("wait_contact_distance").value();
 
     depth_timeout_ = getInput<double>("depth_timeout").value();
@@ -285,6 +289,7 @@ NodeStatus VisualServo::onStart() {
     node_start_time_ = state_start_time_ = prev_time_ = ros::Time::now();
     stable_track_start_ = ros::Time(0);
     brake_hold_start_ = ros::Time(0);
+    wait_last_target_time_ = ros::Time(0);
     {
         std::lock_guard<std::mutex> lock(depth_mutex_);
         target_closing_speed_ = 0.0;
@@ -953,6 +958,7 @@ NodeStatus VisualServo::executeWaitEntry() {
         sendHoverCommand();
         state_ = ServoState::WAITING;
         state_start_time_ = ros::Time::now();
+        wait_last_target_time_ = state_start_time_;
         close_target_seen_ = false;
         publishDebugEvent("strike_state", "ENTERING_WAIT -> WAITING");
         return NodeStatus::RUNNING;
@@ -962,6 +968,7 @@ NodeStatus VisualServo::executeWaitEntry() {
         sendHoverCommand();
         state_ = ServoState::WAITING;
         state_start_time_ = ros::Time::now();
+        wait_last_target_time_ = state_start_time_;
         close_target_seen_ = false;
         publishDebugEvent("strike_state", "ENTERING_WAIT blocked -> WAITING");
     }
@@ -978,6 +985,7 @@ NodeStatus VisualServo::executeWaiting() {
     double target_depth;
     const bool depth_fresh = getDepthSnapshot(hard_clearance, target_depth);
     if (target_valid) {
+        wait_last_target_time_ = ros::Time::now();
         const double area_ratio = target.area() / (static_cast<double>(img_w_) * img_h_);
         const bool close_now = (depth_fresh && std::isfinite(target_depth) &&
                                 target_depth <= wait_contact_distance_) ||
@@ -990,6 +998,11 @@ NodeStatus VisualServo::executeWaiting() {
         }
     } else if (close_target_seen_) {
         return startBrake(BrakeOutcome::HIT, "close target disappeared in wait zone");
+    } else if (!wait_last_target_time_.isZero() &&
+               (ros::Time::now() - wait_last_target_time_).toSec() >=
+                   wait_no_target_timeout_) {
+        return startBrake(BrakeOutcome::ABORT,
+                          "no balloon detected in wait zone for 0.5s");
     }
 
     if ((ros::Time::now() - state_start_time_).toSec() >= wait_timeout_) {
