@@ -30,6 +30,7 @@ private:
         ENTERING_WAIT,
         WAITING,
         SETTLING,
+        LIFTING,
         RECOVERY
     };
 
@@ -49,6 +50,7 @@ private:
     ros::Time stable_track_start_;
     ros::Time brake_hold_start_;
     ros::Time settle_start_time_;
+    ros::Time lift_start_time_;
     ros::Time wait_last_target_time_;
     bool has_ever_received_data_{false};
     bool close_target_seen_{false};
@@ -58,6 +60,8 @@ private:
 
     geometry_msgs::Point corridor_origin_;
     geometry_msgs::Point wait_entry_origin_;
+    geometry_msgs::Point brake_origin_;
+    geometry_msgs::Point post_hit_lift_start_pos_;
     double route_yaw_{0.0};
     double corridor_limit_distance_{0.0};
     double wait_entry_distance_{0.0};
@@ -104,7 +108,7 @@ private:
     double sprint_vertical_speed_tolerance_{0.06};
     double sprint_altitude_hold_gain_{1.5};
     double sprint_max_vertical_correction_{0.08};
-    double sprint_target_loss_grace_{0.60};
+    double sprint_target_loss_grace_{1.50};
     double data_timeout_{0.30};
     double startup_grace_time_{1.0};
     double max_alignment_yaw_deviation_{0.15};
@@ -129,6 +133,18 @@ private:
     double brake_hold_time_{0.30};
     double brake_timeout_{1.80};
     double post_hit_settle_time_{0.45};
+    double post_hit_lift_height_{0.35};
+    double post_hit_lift_time_{0.45};
+    double post_hit_lift_timeout_{1.0};
+    double post_hit_lift_tolerance_{0.12};
+    double post_hit_lift_target_z_{0.0};
+    double post_hit_lift_yaw_{0.0};
+    bool post_hit_lift_completed_{false};
+    double post_hit_escape_yaw_{0.0};
+    double post_hit_escape_velocity_{0.18};
+    double post_hit_escape_distance_{0.10};
+    double post_hit_escape_time_{0.60};
+    double post_hit_escape_yaw_rate_{0.12};
 
     double recovery_delay_{0.15};
     double recovery_yaw_rate_{0.45};
@@ -205,6 +221,8 @@ private:
     bool boundaryCommandSafe(double vx_body, double vy_body) const;
     bool publishGuardedVelocity(double vx, double vy, double vz, double yaw_rate,
                                 double required_clearance, bool require_depth);
+    void publishWorldVelocityWithYawRate(double vx_world, double vy_world, double vz,
+                                         double yaw_rate);
 
     NodeStatus startBrake(BrakeOutcome outcome, const std::string& reason);
     void enterSprint(const ros::Time& now);
@@ -215,6 +233,8 @@ private:
     NodeStatus executeWaiting();
     NodeStatus startRecovery();
     NodeStatus executeRecovery();
+    NodeStatus startPostHitLift();
+    NodeStatus executePostHitLift();
     NodeStatus finishAfterSettle();
 };
 

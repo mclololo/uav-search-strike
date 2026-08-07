@@ -65,7 +65,7 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("k_d_vz", 0.006, "垂直速度D增益"),
         InputPort<double>("max_vz", 0.3, "最大垂直速度"),
         InputPort<double>("deadzone_vz", 10.0, "垂直死区(pixel)"),
-        InputPort<double>("forward_velocity", 0.35, "低速接近速度"),
+        InputPort<double>("forward_velocity", 0.35, "常态接近速度"),
         InputPort<double>("sprint_velocity", 0.85, "直线冲刺速度"),
         InputPort<double>("sprint_time", 6.0, "冲刺最长时间"),
         InputPort<double>("hit_offset_x", 45.0, "侧桨打击像素偏置"),
@@ -83,7 +83,7 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("sprint_vertical_speed_tolerance", 0.06, "冲刺前垂直速度容差"),
         InputPort<double>("sprint_altitude_hold_gain", 1.5, "冲刺高度保持增益"),
         InputPort<double>("sprint_max_vertical_correction", 0.08, "冲刺最大垂直修正速度"),
-        InputPort<double>("sprint_target_loss_grace", 0.60, "冲刺中目标丢失后直线续航时间"),
+        InputPort<double>("sprint_target_loss_grace", 1.50, "冲刺中目标丢失后直线续航时间"),
         InputPort<double>("data_timeout", 0.30, "目标数据超时"),
         InputPort<double>("startup_grace_time", 1.0, "首帧目标等待宽限"),
 
@@ -137,6 +137,11 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("brake_hold_time", 0.30, "低速稳定时间"),
         InputPort<double>("brake_timeout", 1.80, "制动告警时间"),
         InputPort<double>("post_hit_settle_time", 0.45, "停稳交接时间"),
+        InputPort<double>("post_hit_escape_yaw", 0.0, "命中制动时的世界坐标离墙方向"),
+        InputPort<double>("post_hit_escape_velocity", 0.18, "命中制动时的离墙速度"),
+        InputPort<double>("post_hit_escape_distance", 0.10, "命中制动时的离墙距离"),
+        InputPort<double>("post_hit_escape_time", 0.60, "命中制动时的离墙时间上限"),
+        InputPort<double>("post_hit_escape_yaw_rate", 0.12, "命中制动时的最大偏航速度"),
         InputPort<double>("recovery_delay", 0.15, "丢失后恢复延迟"),
         InputPort<double>("recovery_yaw_rate", 0.45, "恢复扫描角速度"),
         InputPort<double>("recovery_total_timeout", 3.0, "恢复总超时"),
@@ -153,10 +158,10 @@ PortsList VisualServo::providedPorts() {
         InputPort<bool>("sprint_lock_visual_correction", false, "冲刺阶段是否锁定视觉航向修正"),
         InputPort<double>("post_hit_brake_velocity", 0.0, "兼容旧XML"),
         InputPort<double>("post_hit_brake_time", 1.80, "兼容旧XML"),
-        InputPort<double>("post_hit_lift_height", 0.0, "兼容旧XML"),
-        InputPort<double>("post_hit_lift_time", 0.0, "兼容旧XML"),
-        InputPort<double>("post_hit_lift_timeout", 0.0, "兼容旧XML"),
-        InputPort<double>("post_hit_lift_tolerance", 0.12, "兼容旧XML"),
+        InputPort<double>("post_hit_lift_height", 0.35, "post-hit relative lift height"),
+        InputPort<double>("post_hit_lift_time", 0.45, "post-hit lift ramp time"),
+        InputPort<double>("post_hit_lift_timeout", 1.0, "post-hit lift timeout"),
+        InputPort<double>("post_hit_lift_tolerance", 0.12, "post-hit lift tolerance"),
         InputPort<double>("recovery_backoff_velocity", 0.0, "兼容旧XML"),
         InputPort<double>("recovery_backoff_time", 0.0, "兼容旧XML"),
         InputPort<double>("egress_timeout", 0.0, "兼容旧XML"),
@@ -266,7 +271,24 @@ NodeStatus VisualServo::onStart() {
     brake_speed_threshold_ = getInput<double>("brake_speed_threshold").value();
     brake_hold_time_ = getInput<double>("brake_hold_time").value();
     brake_timeout_ = getInput<double>("brake_timeout").value();
+    post_hit_lift_height_ = std::max(
+        0.0, getInput<double>("post_hit_lift_height").value());
+    post_hit_lift_time_ = std::max(
+        0.05, getInput<double>("post_hit_lift_time").value());
+    post_hit_lift_timeout_ = std::max(
+        post_hit_lift_time_, getInput<double>("post_hit_lift_timeout").value());
+    post_hit_lift_tolerance_ = std::max(
+        0.01, getInput<double>("post_hit_lift_tolerance").value());
     post_hit_settle_time_ = getInput<double>("post_hit_settle_time").value();
+    post_hit_escape_yaw_ = normalizeYaw(getInput<double>("post_hit_escape_yaw").value());
+    post_hit_escape_velocity_ = std::max(
+        0.0, getInput<double>("post_hit_escape_velocity").value());
+    post_hit_escape_distance_ = std::max(
+        0.0, getInput<double>("post_hit_escape_distance").value());
+    post_hit_escape_time_ = std::max(
+        0.0, getInput<double>("post_hit_escape_time").value());
+    post_hit_escape_yaw_rate_ = std::max(
+        0.0, getInput<double>("post_hit_escape_yaw_rate").value());
     recovery_delay_ = getInput<double>("recovery_delay").value();
     recovery_yaw_rate_ = getInput<double>("recovery_yaw_rate").value();
     recovery_total_timeout_ = getInput<double>("recovery_total_timeout").value();
@@ -289,7 +311,9 @@ NodeStatus VisualServo::onStart() {
     node_start_time_ = state_start_time_ = prev_time_ = ros::Time::now();
     stable_track_start_ = ros::Time(0);
     brake_hold_start_ = ros::Time(0);
+    lift_start_time_ = ros::Time(0);
     wait_last_target_time_ = ros::Time(0);
+    post_hit_lift_completed_ = false;
     {
         std::lock_guard<std::mutex> lock(depth_mutex_);
         target_closing_speed_ = 0.0;
@@ -346,6 +370,8 @@ NodeStatus VisualServo::onRunning() {
             return executeWaiting();
         case ServoState::SETTLING:
             return finishAfterSettle();
+        case ServoState::LIFTING:
+            return executePostHitLift();
         case ServoState::RECOVERY: {
             PixelTarget recovered_target;
             double recovered_age;
@@ -819,13 +845,39 @@ bool VisualServo::publishGuardedVelocity(double vx, double vy, double vz, double
     return true;
 }
 
+void VisualServo::publishWorldVelocityWithYawRate(double vx_world, double vy_world,
+                                                  double vz, double yaw_rate) {
+    const double current_yaw = PoseUtils::getYawFromQuat(
+        fcu_odom_ptr->pose.pose.orientation);
+    // Convert world ENU velocity to the BODY_NED convention used by the yaw-rate API.
+    const double body_vx = std::cos(current_yaw) * vx_world +
+                           std::sin(current_yaw) * vy_world;
+    const double body_vy = std::sin(current_yaw) * vx_world -
+                           std::cos(current_yaw) * vy_world;
+    publishVelocityWithYawRate(body_vx, body_vy, vz, yaw_rate);
+}
+
 NodeStatus VisualServo::startBrake(BrakeOutcome outcome, const std::string& reason) {
     brake_outcome_ = outcome;
     finish_reason_ = reason;
     state_ = ServoState::BRAKING;
     state_start_time_ = ros::Time::now();
     brake_hold_start_ = ros::Time(0);
-    publishVelocityWithYawRate(0, 0, 0, headingHoldYawRate());
+    brake_origin_ = fcu_odom_ptr->pose.pose.position;
+    if (outcome == BrakeOutcome::HIT && post_hit_escape_velocity_ > 0.0 &&
+        post_hit_escape_distance_ > 0.0 && post_hit_escape_time_ > 0.0) {
+        const double current_yaw = PoseUtils::getYawFromQuat(
+            fcu_odom_ptr->pose.pose.orientation);
+        const double escape_yaw_rate = std::clamp(
+            normalizeYaw(post_hit_escape_yaw_ - current_yaw),
+            -post_hit_escape_yaw_rate_, post_hit_escape_yaw_rate_);
+        publishWorldVelocityWithYawRate(
+            post_hit_escape_velocity_ * std::cos(post_hit_escape_yaw_),
+            post_hit_escape_velocity_ * std::sin(post_hit_escape_yaw_),
+            0.0, escape_yaw_rate);
+    } else {
+        publishVelocityWithYawRate(0, 0, 0, headingHoldYawRate());
+    }
     publishDebugEvent("strike_brake", reason);
     ROS_WARN("[%s]: BRAKE outcome=%d reason=%s progress=%.2f remaining=%.2f",
              name().c_str(), static_cast<int>(outcome), reason.c_str(),
@@ -908,7 +960,44 @@ NodeStatus VisualServo::executeBrake() {
     const double altitude = fcu_odom_ptr->pose.pose.position.z;
     const double vz = altitude < min_attack_altitude_
         ? std::abs(altitude_recovery_speed_) : 0.0;
-    publishVelocityWithYawRate(0, 0, vz, headingHoldYawRate());
+
+    const auto& position = fcu_odom_ptr->pose.pose.position;
+    const double escape_progress =
+        std::cos(post_hit_escape_yaw_) * (position.x - brake_origin_.x) +
+        std::sin(post_hit_escape_yaw_) * (position.y - brake_origin_.y);
+    const double brake_elapsed = (ros::Time::now() - state_start_time_).toSec();
+    const bool escape_active = brake_outcome_ == BrakeOutcome::HIT &&
+        post_hit_escape_velocity_ > 0.0 && post_hit_escape_distance_ > 0.0 &&
+        post_hit_escape_time_ > 0.0 &&
+        escape_progress < post_hit_escape_distance_ &&
+        brake_elapsed < post_hit_escape_time_;
+    if (escape_active) {
+        const double current_yaw = PoseUtils::getYawFromQuat(
+            fcu_odom_ptr->pose.pose.orientation);
+        const double escape_yaw_rate = std::clamp(
+            normalizeYaw(post_hit_escape_yaw_ - current_yaw),
+            -post_hit_escape_yaw_rate_, post_hit_escape_yaw_rate_);
+        publishWorldVelocityWithYawRate(
+            post_hit_escape_velocity_ * std::cos(post_hit_escape_yaw_),
+            post_hit_escape_velocity_ * std::sin(post_hit_escape_yaw_),
+            vz, escape_yaw_rate);
+        brake_hold_start_ = ros::Time(0);
+        ROS_INFO_THROTTLE(0.25,
+                          "[%s]: HIT brake escaping wall: progress=%.2f/%.2fm yaw=%.2f",
+                          name().c_str(), escape_progress,
+                          post_hit_escape_distance_, post_hit_escape_yaw_);
+        return NodeStatus::RUNNING;
+    }
+
+    double brake_yaw_rate = headingHoldYawRate();
+    if (brake_outcome_ == BrakeOutcome::HIT) {
+        const double current_yaw = PoseUtils::getYawFromQuat(
+            fcu_odom_ptr->pose.pose.orientation);
+        brake_yaw_rate = std::clamp(
+            normalizeYaw(route_yaw_ - current_yaw),
+            -post_hit_escape_yaw_rate_, post_hit_escape_yaw_rate_);
+    }
+    publishVelocityWithYawRate(0, 0, vz, brake_yaw_rate);
 
     const double speed = currentSpeed();
     if (speed <= brake_speed_threshold_) {
@@ -1032,6 +1121,44 @@ NodeStatus VisualServo::executeRecovery() {
     return NodeStatus::RUNNING;
 }
 
+NodeStatus VisualServo::startPostHitLift() {
+    post_hit_lift_start_pos_ = fcu_odom_ptr->pose.pose.position;
+    post_hit_lift_target_z_ = post_hit_lift_start_pos_.z + post_hit_lift_height_;
+    post_hit_lift_yaw_ = PoseUtils::getYawFromQuat(
+        fcu_odom_ptr->pose.pose.orientation);
+    lift_start_time_ = ros::Time::now();
+    state_ = ServoState::LIFTING;
+    publishDebugEvent("strike_state", "SETTLING -> LIFTING");
+    ROS_INFO("[%s]: Post-hit lift started: z=%.2f target_z=%.2f height=%.2f",
+             name().c_str(), post_hit_lift_start_pos_.z,
+             post_hit_lift_target_z_, post_hit_lift_height_);
+    return NodeStatus::RUNNING;
+}
+
+NodeStatus VisualServo::executePostHitLift() {
+    const double elapsed = (ros::Time::now() - lift_start_time_).toSec();
+    const double ratio = std::clamp(elapsed / post_hit_lift_time_, 0.0, 1.0);
+    const double smooth_ratio = ratio * ratio * (3.0 - 2.0 * ratio);
+    geometry_msgs::Point lift_target = post_hit_lift_start_pos_;
+    lift_target.z += post_hit_lift_height_ * smooth_ratio;
+    publishPosition(lift_target, post_hit_lift_yaw_);
+
+    const double current_z = fcu_odom_ptr->pose.pose.position.z;
+    const bool height_reached =
+        std::abs(current_z - post_hit_lift_target_z_) <= post_hit_lift_tolerance_;
+    const bool timed_out = elapsed >= post_hit_lift_timeout_;
+    if (height_reached || timed_out) {
+        post_hit_lift_completed_ = true;
+        state_ = ServoState::SETTLING;
+        settle_start_time_ = ros::Time::now();
+        publishDebugEvent("strike_state", "LIFTING -> SETTLING");
+        ROS_INFO("[%s]: Post-hit lift finished: reached=%d z=%.2f target_z=%.2f elapsed=%.2f",
+                 name().c_str(), height_reached, current_z,
+                 post_hit_lift_target_z_, elapsed);
+    }
+    return NodeStatus::RUNNING;
+}
+
 NodeStatus VisualServo::finishAfterSettle() {
     sendHoverCommand();
     if ((ros::Time::now() - settle_start_time_).toSec() < post_hit_settle_time_ ||
@@ -1039,6 +1166,9 @@ NodeStatus VisualServo::finishAfterSettle() {
         return NodeStatus::RUNNING;
     }
     const bool success = brake_outcome_ == BrakeOutcome::HIT;
+    if (success && !post_hit_lift_completed_ && post_hit_lift_height_ > 0.0) {
+        return startPostHitLift();
+    }
     publishDebugEvent(success ? "strike_success" : "strike_failure", finish_reason_);
     return success ? NodeStatus::SUCCESS : NodeStatus::FAILURE;
 }

@@ -44,7 +44,7 @@ private:
     double last_detection_time_{0.0};  // 上一次真实检测到目标的时间（用于丢失宽限判断）
     double last_update_time_{0.0};     // 上一次滤波器 predict/correct 的时间（用于 dt 计算）
 
-    double lost_target_grace_time_{0.8};
+    double lost_target_grace_time_{1.5};
     double kf_process_noise_{5000.0};      // 过程噪声：加速度谱密度 (px^2/s^3)，越大响应越快
     double kf_measurement_noise_{36.0};    // 量测噪声方差 (px^2)，越大输出越平滑
     double kf_gate_distance_{120.0};       // 量测关联门限 (px)，0 = 关闭门控

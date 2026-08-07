@@ -30,7 +30,7 @@ PortsList TargetTracker::providedPorts() {
     auto ports = baseProvidedPorts();
     // 已弃用：原为滑动平均窗口，现由卡尔曼滤波替代。保留端口以兼容旧的行为树 XML。
     ports.insert(InputPort<int>("filter_window_size", 10, "[已弃用] 现使用卡尔曼滤波，此参数无效"));
-    ports.insert(InputPort<double>("lost_target_grace_time", 0.8, "目标短暂丢失时按预测保留目标的时间(s)"));
+    ports.insert(InputPort<double>("lost_target_grace_time", 1.5, "目标短暂丢失时按预测保留目标的时间(s)"));
     ports.insert(InputPort<double>("kf_process_noise", 5000.0,
                                    "卡尔曼过程噪声(加速度谱密度 px^2/s^3)，越大跟踪响应越快"));
     ports.insert(InputPort<double>("kf_measurement_noise", 36.0,

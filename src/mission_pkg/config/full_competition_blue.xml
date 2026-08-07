@@ -28,17 +28,17 @@
       <!-- 9.5 掉头朝向C区（从yaw≈π转到yaw=0，面向+x方向） -->
       <GoTo goal="0.2;0.0;0.0" frame="1" yaw="0.0"/>
       <!-- 10. 规划飞到C区左端，准备打击C区气球 -->
-      <PlanningControl goal="5.3;1.0;1.0"/>
+      <PlanningControl goal="5.4;1.0;1.0"/>
       <!-- ============================================================ -->
       <!-- 打击气球阶段 (默认: A区红球)                                   -->
       <!-- 后续由大模型决定打击目标，需替换以下参数:                         -->
-      <!--   A区红球: pos=5.3;1.0;1.0  yaw=π/2(1.5708) 朝+y              -->
-      <!--   C区蓝球: pos=5.3;1.0;1.0  yaw=π(3.14159) 朝+y 左转90°     -->
-      <!--   B区紫球: pos=5.3;-1.0;1.0 yaw=-π/2(-1.5708) 朝-y            -->
+      <!--   A区红球: pos=5.3;1.1;1.0  yaw=π/2(1.5708) 朝+y              -->
+      <!--   C区蓝球: pos=5.4;1.0;1.0  yaw=π(3.14159) 朝+y 左转90°     -->
+      <!--   B区紫球: pos=5.3;-2.60;1.0 yaw=-π/2(-1.5708) 朝-y           -->
       <!-- ============================================================ -->
       <!-- 11. 到0.70m搜索点；识别目标后再立即下降 -->
-      <PlanningControl goal="5.3;1.0;0.70"/>
-      <GoTo goal="5.3;1.0;0.70" yaw="-1.5708" tolerance="0.10" yaw_tolerance="0.15" yaw_rate="0.50"/>
+      <PlanningControl goal="5.4;1.0;0.70"/>
+      <GoTo goal="5.4;1.0;0.70" yaw="-1.5708" tolerance="0.10" yaw_tolerance="0.15" yaw_rate="0.50"/>
       <!-- 12. 跟踪并撞击C区气球 -->
       <!-- 低空搜索，发现后完成侧桨偏置对准并沿C区水平直线冲刺 -->
       <ForceSuccess>
@@ -55,7 +55,7 @@
                 <TargetTracker
                     object_name="blue_balloon"
                     confidence_threshold="0.6"
-                    pixel_target="{balloon_pixel}" lost_target_grace_time="0.8" />
+                    pixel_target="{balloon_pixel}" lost_target_grace_time="1.5" />
 
                 <!-- 视觉伺服：VX+VZ+yaw_rate PD控制 -->
                 <VisualServo
@@ -69,7 +69,7 @@
                     sprint_velocity="0.85"
                     sprint_time="6.0"
                     sprint_lock_visual_correction="false"
-                    hit_offset_x="-40.0"
+                    hit_offset_x="-45.0"
                     hit_offset_reference_depth="0.80"
                     max_hit_offset_ratio="0.35"
                     corridor_reference_length="5.00"
@@ -91,6 +91,15 @@
                     post_hit_brake_velocity="0.35"
                     post_hit_brake_time="0.35"
                     post_hit_settle_time="0.45"
+                    post_hit_lift_height="0.35"
+                    post_hit_lift_time="0.45"
+                    post_hit_lift_timeout="1.0"
+                    post_hit_lift_tolerance="0.12"
+                    post_hit_escape_yaw="3.14159"
+                    post_hit_escape_velocity="0.18"
+                    post_hit_escape_distance="0.10"
+                    post_hit_escape_time="0.60"
+                    post_hit_escape_yaw_rate="0.12"
                     data_timeout="0.50"
                     recovery_delay="0.1"
                     recovery_backoff_velocity="0.0"
@@ -102,10 +111,10 @@
                     sprint_alignment_stable_frames="2" sprint_altitude_tolerance="0.04"
                     sprint_vertical_speed_tolerance="0.06" sprint_altitude_hold_gain="1.5"
                     sprint_max_vertical_correction="0.08"
-                    sprint_target_loss_grace="0.60"
+                    sprint_target_loss_grace="1.50"
                     depth_timeout="0.20" depth_min_points="8" target_depth_band="0.22"
                     corridor_half_width="0.38" corridor_half_height="0.32"
-                    emergency_clearance="0.48" contact_distance="0.35"
+                    emergency_clearance="0.0" contact_distance="0.35"
                     min_attack_altitude="0.30" altitude_guard_margin="0.05" boundary_margin="0.40"
                     brake_speed_threshold="0.12" brake_hold_time="0.30" brake_timeout="1.80" />
               </Parallel>

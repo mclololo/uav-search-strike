@@ -90,33 +90,41 @@
     <!-- yaw:  到达位置时的机头朝向 (rad)                -->
     <!-- ============================================ -->
     <!-- A区 (红色气球) -->
-    <param name="balloon_zone_A/approach_pos" value="5.3;1.0;1.0"  type="str"/>
-    <param name="balloon_zone_A/goal"         value="5.3;1.0;0.70" type="str"/>
+    <param name="balloon_zone_A/approach_pos" value="5.3;1.1;1.0"  type="str"/>
+    <param name="balloon_zone_A/goal"         value="5.3;1.1;0.70" type="str"/>
     <param name="balloon_zone_A/yaw"          value="3.14159"       type="double"/>
-    <param name="balloon_zone_A/hit_offset_x" value="55.0" type="double"/>
+    <param name="balloon_zone_A/hit_offset_x" value="45.0" type="double"/>
     <param name="balloon_zone_A/corridor_reference_length" value="5.20" type="double"/>
     <param name="balloon_zone_A/sprint_limit_ratio" value="0.86" type="double"/>
     <param name="balloon_zone_A/target_zone_far_ratio" value="0.78" type="double"/>
     <param name="balloon_zone_A/wait_entry_ratio" value="0.35" type="double"/>
+    <param name="balloon_zone_A/post_hit_escape_yaw" value="-1.5708" type="double"/>
     <!-- B区 (紫色气球) -->
-    <param name="balloon_zone_B/approach_pos" value="5.3;-2.50;1.0" type="str"/>
-    <param name="balloon_zone_B/goal"         value="5.3;-2.50;0.70" type="str"/>
-    <param name="balloon_zone_B/search_pos"   value="5.3;-2.50;0.70" type="str"/>
+    <param name="balloon_zone_B/approach_pos" value="5.3;-2.60;1.0" type="str"/>
+    <param name="balloon_zone_B/goal"         value="5.3;-2.60;0.70" type="str"/>
+    <param name="balloon_zone_B/search_pos"   value="5.3;-2.60;0.70" type="str"/>
     <param name="balloon_zone_B/yaw"          value="3.14159"       type="double"/>
     <param name="balloon_zone_B/hit_offset_x" value="-5.0" type="double"/>
     <param name="balloon_zone_B/corridor_reference_length" value="5.20" type="double"/>
     <param name="balloon_zone_B/sprint_limit_ratio" value="0.78" type="double"/>
     <param name="balloon_zone_B/target_zone_far_ratio" value="0.78" type="double"/>
     <param name="balloon_zone_B/wait_entry_ratio" value="0.0" type="double"/>
+    <param name="balloon_zone_B/emergency_clearance" value="0.0" type="double"/>
+    <param name="balloon_zone_B/boundary_margin" value="0.20" type="double"/>
+    <param name="balloon_zone_B/post_hit_escape_yaw" value="1.5708" type="double"/>
+    <param name="balloon_zone_B/post_hit_escape_distance" value="0.25" type="double"/>
+    <param name="balloon_zone_B/post_hit_escape_time" value="1.50" type="double"/>
     <!-- C区 (蓝色气球) -->
-    <param name="balloon_zone_C/approach_pos" value="5.3;1.0;1.0"  type="str"/>
-    <param name="balloon_zone_C/goal"         value="5.3;1.0;0.70" type="str"/>
+    <param name="balloon_zone_C/approach_pos" value="5.4;1.0;1.0"  type="str"/>
+    <param name="balloon_zone_C/goal"         value="5.4;1.0;0.70" type="str"/>
     <param name="balloon_zone_C/yaw"          value="-1.5708"       type="double"/>
-    <param name="balloon_zone_C/hit_offset_x" value="-40.0" type="double"/>
+    <param name="balloon_zone_C/hit_offset_x" value="-45.0" type="double"/>
     <param name="balloon_zone_C/corridor_reference_length" value="5.00" type="double"/>
     <param name="balloon_zone_C/sprint_limit_ratio" value="0.76" type="double"/>
     <param name="balloon_zone_C/target_zone_far_ratio" value="0.76" type="double"/>
     <param name="balloon_zone_C/wait_entry_ratio" value="0.35" type="double"/>
+    <param name="balloon_zone_C/emergency_clearance" value="0.0" type="double"/>
+    <param name="balloon_zone_C/post_hit_escape_yaw" value="3.14159" type="double"/>
 
     <!-- ============================================ -->
     <!-- VisualServo 视觉伺服参数（与手调 XML 一致）     -->
@@ -138,11 +146,15 @@
     <param name="visual_servo/sprint_lock_visual_correction" value="true" type="bool"/>
     <param name="visual_servo/post_hit_brake_velocity"  value="0.0"   type="double"/>
     <param name="visual_servo/post_hit_brake_time"      value="1.5"   type="double"/>
-    <param name="visual_servo/post_hit_lift_height"     value="0.0"   type="double"/>
+    <param name="visual_servo/post_hit_lift_height"     value="0.35"  type="double"/>
     <param name="visual_servo/post_hit_lift_time"       value="0.45"  type="double"/>
     <param name="visual_servo/post_hit_lift_timeout"    value="1.0"   type="double"/>
     <param name="visual_servo/post_hit_lift_tolerance"  value="0.12"  type="double"/>
     <param name="visual_servo/post_hit_settle_time"     value="0.45"  type="double"/>
+    <param name="visual_servo/post_hit_escape_velocity" value="0.18" type="double"/>
+    <param name="visual_servo/post_hit_escape_distance" value="0.10" type="double"/>
+    <param name="visual_servo/post_hit_escape_time"     value="0.60" type="double"/>
+    <param name="visual_servo/post_hit_escape_yaw_rate" value="0.12" type="double"/>
     <param name="visual_servo/data_timeout"              value="0.50"   type="double"/>
     <param name="visual_servo/startup_grace_time"        value="1.0"    type="double"/>
     <param name="visual_servo/strike_stable_time"        value="0.15"   type="double"/>
@@ -153,7 +165,7 @@
     <param name="visual_servo/sprint_vertical_speed_tolerance" value="0.06" type="double"/>
     <param name="visual_servo/sprint_altitude_hold_gain" value="1.5" type="double"/>
     <param name="visual_servo/sprint_max_vertical_correction" value="0.08" type="double"/>
-    <param name="visual_servo/sprint_target_loss_grace"  value="0.60"   type="double"/>
+    <param name="visual_servo/sprint_target_loss_grace"  value="1.50"   type="double"/>
     <!-- 在0.70m发现目标后立即下降，并同步完成侧桨偏置对准 -->
     <param name="visual_servo/strike_altitude"            value="0.40"   type="double"/>
     <param name="visual_servo/descent_velocity"           value="0.22"   type="double"/>
@@ -201,7 +213,7 @@
     <param name="visual_servo/recovery_yaw_rate"         value="0.5"   type="double"/>
     <param name="visual_servo/recovery_total_timeout"    value="3.0"   type="double"/>
     <param name="balloon_detection/confidence_threshold" value="0.60" type="double"/>
-    <param name="target_tracker/lost_target_grace_time" value="0.8" type="double"/>
+    <param name="target_tracker/lost_target_grace_time" value="1.5" type="double"/>
 
     <!-- ============================================ -->
     <!-- 打击前主动扫描参数                            -->
