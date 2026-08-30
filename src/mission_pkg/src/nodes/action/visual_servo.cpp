@@ -859,15 +859,19 @@ void VisualServo::publishWorldVelocityWithYawRate(double vx_world, double vy_wor
                                                   double vz, double yaw_rate) {
     const double current_yaw = PoseUtils::getYawFromQuat(
         fcu_odom_ptr->pose.pose.orientation);
-    // Convert world ENU velocity to the BODY_NED convention used by the yaw-rate API.
+    // 世界 ENU 速度 -> 机体系。本桥接的 FRAME_BODY_NED 实际按 FLU（x前/y左/z上）
+    // 生效：z 上正、yaw_rate 为 ENU 符号均已实测验证（若为真 NED，sprint 高度保持
+    // 会反向爬升、航向保持会发散）。y 轴必须取机体"左向"投影；曾按 FRD 的
+    // y-右约定书写，导致横向逃逸方向镜像（C 区离墙逃逸实际冲墙）。
     const double body_vx = std::cos(current_yaw) * vx_world +
                            std::sin(current_yaw) * vy_world;
-    const double body_vy = std::sin(current_yaw) * vx_world -
+    const double body_vy = -std::sin(current_yaw) * vx_world +
                            std::cos(current_yaw) * vy_world;
     publishVelocityWithYawRate(body_vx, body_vy, vz, yaw_rate);
 }
 
 NodeStatus VisualServo::startBrake(BrakeOutcome outcome, const std::string& reason) {
+    const ServoState prev_state = state_;
     brake_outcome_ = outcome;
     finish_reason_ = reason;
     state_ = ServoState::BRAKING;
@@ -875,19 +879,23 @@ NodeStatus VisualServo::startBrake(BrakeOutcome outcome, const std::string& reas
     brake_hold_start_ = ros::Time(0);
     brake_origin_ = fcu_odom_ptr->pose.pose.position;
     if (outcome == BrakeOutcome::HIT) {
-        // 鹰式撤离弧线：速度指令从命中瞬间的实际速度出发，连续旋转到
+        // 鹰式撤离弧线：速度指令从命中瞬间的运动状态出发，连续旋转到
         // "横移离墙 + 爬升抬升"，顺着惯性带弯而不是对抗惯性（对头阻尼会
-        // 反冲向气球残骸/载车，实测更差已回退）。首拍指令 = 当前速度，
-        // 冲刺 -> 撤离全程无速度跳变。
+        // 反冲向气球残骸/载车，实测更差已回退）。
+        //
+        // 弧线初始前向速度取"指令值"而非 odom twist 反馈：
+        // 1) RflySim 速度反馈滞后大，命中瞬间实测可能接近 0（v_fwd0=-0.00）；
+        // 2) MAVROS odom 的 twist 是机体系(child_frame_id=base_link)，直接按
+        //    世界系投影会把机体系前向速度 (0.85,0) 算成 0，还会把 (0.85,0)
+        //    误当世界系向东发布，把无人机推向 x 边界（实测越界 0.57m）。
+        // 冲刺命中时动量就是 sprint_velocity_；等待区命中时悬停动量为 0。
+        // 首拍不单独发指令：executeFlyAway 在 s=0 时发布的前向分量与冲刺
+        // 指令完全一致，天然连续，且统一走安全门控。
         arc_start_pos_ = brake_origin_;
         arc_start_time_ = state_start_time_;
         arc_target_z_ = brake_origin_.z + post_hit_lift_height_;
-        const auto& vel = fcu_odom_ptr->twist.twist.linear;
-        arc_v0_fwd_ = std::clamp(
-            vel.x * std::cos(route_yaw_) + vel.y * std::sin(route_yaw_),
-            -sprint_velocity_, sprint_velocity_);
+        arc_v0_fwd_ = (prev_state == ServoState::SPRINTING) ? sprint_velocity_ : 0.0;
         state_ = ServoState::FLY_AWAY;
-        publishWorldVelocityWithYawRate(vel.x, vel.y, 0.0, headingHoldYawRate());
         publishDebugEvent("strike_state", "FLY_AWAY arc started");
     } else {
         publishVelocityWithYawRate(0, 0, 0, headingHoldYawRate());
@@ -1044,18 +1052,34 @@ NodeStatus VisualServo::executeFlyAway() {
     const double vx = fwd_x + esc_x * s;
     const double vy = fwd_y + esc_y * s;
 
-    // 安全门控：命令越界或冲刺走廊内出现硬障碍时立即悬停收尾
-    const double current_yaw = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
-    const double body_vx = std::cos(current_yaw) * vx + std::sin(current_yaw) * vy;
-    const double body_vy = std::sin(current_yaw) * vx - std::cos(current_yaw) * vy;
-    if (emergencyObstacleDetected() || !boundaryCommandSafe(body_vx, body_vy)) {
+    // 安全门控：当前位置已贴近/越出命令安全区（含 boundary_margin 内缩），
+    // 或冲刺走廊内出现硬障碍时，立即悬停收尾，不再发布任何移动指令
+    const bool position_unsafe =
+        position.x < boundary_x_min_ + boundary_margin_ ||
+        position.x > boundary_x_max_ - boundary_margin_ ||
+        position.y < boundary_y_min_ + boundary_margin_ ||
+        position.y > boundary_y_max_ - boundary_margin_;
+    if (position_unsafe || emergencyObstacleDetected()) {
         sendHoverCommand();
         post_hit_lift_completed_ = true;
         state_ = ServoState::SETTLING;
         settle_start_time_ = now;
         publishDebugEvent("strike_state", "FLY_AWAY blocked -> SETTLING");
-        ROS_WARN("[%s]: Fly-away arc blocked at t=%.2f, hover and settle",
-                 name().c_str(), t);
+        ROS_WARN("[%s]: Fly-away arc blocked at t=%.2f pos=(%.2f,%.2f), hover and settle",
+                 name().c_str(), t, position.x, position.y);
+        return NodeStatus::RUNNING;
+    }
+
+    // 命令级边界检查（body 系换算后复用 boundaryCommandSafe 的投影预测）
+    const double current_yaw = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
+    const double body_vx = std::cos(current_yaw) * vx + std::sin(current_yaw) * vy;
+    const double body_vy = std::sin(current_yaw) * vx - std::cos(current_yaw) * vy;
+    if (!boundaryCommandSafe(body_vx, body_vy)) {
+        sendHoverCommand();
+        post_hit_lift_completed_ = true;
+        state_ = ServoState::SETTLING;
+        settle_start_time_ = now;
+        publishDebugEvent("strike_state", "FLY_AWAY command blocked -> SETTLING");
         return NodeStatus::RUNNING;
     }
 
