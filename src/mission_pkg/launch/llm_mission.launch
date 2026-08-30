@@ -93,7 +93,7 @@
     <param name="balloon_zone_A/approach_pos" value="5.3;1.1;1.0"  type="str"/>
     <param name="balloon_zone_A/goal"         value="5.3;1.1;0.70" type="str"/>
     <param name="balloon_zone_A/yaw"          value="3.14159"       type="double"/>
-    <param name="balloon_zone_A/hit_offset_x" value="35.0" type="double"/>
+    <param name="balloon_zone_A/hit_offset_x" value="25.0" type="double"/>
     <param name="balloon_zone_A/corridor_reference_length" value="5.20" type="double"/>
     <param name="balloon_zone_A/sprint_limit_ratio" value="0.86" type="double"/>
     <param name="balloon_zone_A/target_zone_far_ratio" value="0.78" type="double"/>
@@ -118,7 +118,7 @@
     <param name="balloon_zone_C/approach_pos" value="5.4;1.0;1.0"  type="str"/>
     <param name="balloon_zone_C/goal"         value="5.4;1.0;0.70" type="str"/>
     <param name="balloon_zone_C/yaw"          value="-1.5708"       type="double"/>
-    <param name="balloon_zone_C/hit_offset_x" value="-35.0" type="double"/>
+    <param name="balloon_zone_C/hit_offset_x" value="-25.0" type="double"/>
     <param name="balloon_zone_C/corridor_reference_length" value="5.00" type="double"/>
     <param name="balloon_zone_C/sprint_limit_ratio" value="0.76" type="double"/>
     <param name="balloon_zone_C/target_zone_far_ratio" value="0.76" type="double"/>
