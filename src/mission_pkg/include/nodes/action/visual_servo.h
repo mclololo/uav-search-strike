@@ -109,6 +109,8 @@ private:
     double sprint_altitude_hold_gain_{1.5};
     double sprint_max_vertical_correction_{0.08};
     double sprint_target_loss_grace_{1.50};
+    // 近距离确认目标后的丢失宽限：近距离丢框≈气球已爆，用短宽限立即判命中
+    double close_target_loss_grace_{0.30};
     double data_timeout_{0.30};
     double startup_grace_time_{1.0};
     double max_alignment_yaw_deviation_{0.15};

@@ -151,9 +151,10 @@
     <param name="visual_servo/post_hit_lift_timeout"    value="1.0"   type="double"/>
     <param name="visual_servo/post_hit_lift_tolerance"  value="0.12"  type="double"/>
     <param name="visual_servo/post_hit_settle_time"     value="0.45"  type="double"/>
-    <param name="visual_servo/post_hit_escape_velocity" value="0.18" type="double"/>
-    <param name="visual_servo/post_hit_escape_distance" value="0.10" type="double"/>
-    <param name="visual_servo/post_hit_escape_time"     value="0.60" type="double"/>
+    <!-- 命中后立即撤离：加大逃逸速度与预算，避免前向惯性未刹住就停止横移 -->
+    <param name="visual_servo/post_hit_escape_velocity" value="0.28" type="double"/>
+    <param name="visual_servo/post_hit_escape_distance" value="0.25" type="double"/>
+    <param name="visual_servo/post_hit_escape_time"     value="1.20" type="double"/>
     <param name="visual_servo/post_hit_escape_yaw_rate" value="0.12" type="double"/>
     <param name="visual_servo/data_timeout"              value="0.50"   type="double"/>
     <param name="visual_servo/startup_grace_time"        value="1.0"    type="double"/>
@@ -166,6 +167,8 @@
     <param name="visual_servo/sprint_altitude_hold_gain" value="1.5" type="double"/>
     <param name="visual_servo/sprint_max_vertical_correction" value="0.08" type="double"/>
     <param name="visual_servo/sprint_target_loss_grace"  value="1.50"   type="double"/>
+    <!-- 近距离确认目标后的丢失宽限：近距离丢框≈气球已爆，0.3s 内立即判命中并撤离 -->
+    <param name="visual_servo/close_target_loss_grace"   value="0.30"   type="double"/>
     <!-- 在0.70m发现目标后立即下降，并同步完成侧桨偏置对准 -->
     <param name="visual_servo/strike_altitude"            value="0.40"   type="double"/>
     <param name="visual_servo/descent_velocity"           value="0.22"   type="double"/>

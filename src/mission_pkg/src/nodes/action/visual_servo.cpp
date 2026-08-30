@@ -84,6 +84,8 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("sprint_altitude_hold_gain", 1.5, "冲刺高度保持增益"),
         InputPort<double>("sprint_max_vertical_correction", 0.08, "冲刺最大垂直修正速度"),
         InputPort<double>("sprint_target_loss_grace", 1.50, "冲刺中目标丢失后直线续航时间"),
+        InputPort<double>("close_target_loss_grace", 0.30,
+                          "近距离确认目标后的丢失宽限(s)：近距离丢框≈气球已爆，立即判命中撤离"),
         InputPort<double>("data_timeout", 0.30, "目标数据超时"),
         InputPort<double>("startup_grace_time", 1.0, "首帧目标等待宽限"),
 
@@ -208,6 +210,8 @@ NodeStatus VisualServo::onStart() {
     sprint_max_vertical_correction_ = std::max(
         0.0, getInput<double>("sprint_max_vertical_correction").value());
     sprint_target_loss_grace_ = getInput<double>("sprint_target_loss_grace").value();
+    close_target_loss_grace_ = std::max(
+        0.05, getInput<double>("close_target_loss_grace").value());
     data_timeout_ = getInput<double>("data_timeout").value();
     startup_grace_time_ = getInput<double>("startup_grace_time").value();
     max_alignment_yaw_deviation_ = std::max(
@@ -480,6 +484,10 @@ NodeStatus VisualServo::onRunning() {
 void VisualServo::updateTargetData() {
     auto result = getInput<PixelTarget>("pixel_target");
     if (!result || !result.value().is_detected) return;
+    // 冲刺阶段：KF 外推帧不是真实检测，不能刷新最后有效检测时刻。
+    // 否则气球爆裂后的丢失判定会被 Tracker 的外推宽限(1.5s)掩盖，
+    // 无人机带着虚构目标继续全速盲冲，命中后无法立即撤离。
+    if (state_ == ServoState::SPRINTING && result.value().extrapolated) return;
     std::lock_guard<std::mutex> lock(target_mutex_);
     last_target_ = result.value();
     last_valid_detection_time_ = ros::Time::now();
@@ -906,11 +914,19 @@ void VisualServo::enterSprint(const ros::Time& now) {
 
 NodeStatus VisualServo::executeSprint(bool target_visible, double target_age,
                                       double area_ratio, double visual_yaw_rate) {
+    // 分级丢失宽限：近距离确认过目标后，丢框≈气球已爆裂，
+    // 用短宽限立即判命中并撤离；未近距离时保持原有长宽限防检测抖动误判。
+    // 宽限判定放在 target_visible 分支之外：stale 数据(age<=data_timeout)期间
+    // 同样要计时，否则命中确认会再被拖慢 data_timeout_。
+    const double effective_grace = close_target_seen_
+        ? std::min(sprint_target_loss_grace_, close_target_loss_grace_)
+        : sprint_target_loss_grace_;
     if (target_visible) {
         const double close_area = std::max(approach_area_threshold_,
                                            post_hit_success_area_ratio_);
         close_target_seen_ = close_target_seen_ || area_ratio >= close_area;
-    } else if (target_age > sprint_target_loss_grace_) {
+    }
+    if (target_age > effective_grace) {
         return startBrake(close_target_seen_ ? BrakeOutcome::HIT : BrakeOutcome::MISS_TO_WAIT,
                           close_target_seen_ ? "close target disappeared during sprint"
                                              : "target lost after blind sprint grace");

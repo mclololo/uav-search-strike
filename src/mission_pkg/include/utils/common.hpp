@@ -71,14 +71,17 @@ struct PixelTarget
   double height{0.0};
   double timestamp{0.0};  // ROS时间戳
   bool is_detected{false}; // 是否检测到有效目标
-  
+  bool extrapolated{false}; // true=丢失宽限期内KF外推的预测框，不是真实检测
+
   PixelTarget() {}
-  
+
 
       
   // 完整构造函数，默认 valid=false 以策安全
-  PixelTarget(double cx, double cy, double w, double h, double ts, bool valid = false)
-      : center_x(cx), center_y(cy), width(w), height(h), timestamp(ts), is_detected(valid) {}
+  PixelTarget(double cx, double cy, double w, double h, double ts, bool valid = false,
+              bool extrap = false)
+      : center_x(cx), center_y(cy), width(w), height(h), timestamp(ts),
+        is_detected(valid), extrapolated(extrap) {}
   
   double area() const { return width * height; }
   

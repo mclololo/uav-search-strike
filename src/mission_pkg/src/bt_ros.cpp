@@ -409,6 +409,8 @@ std::string commandToXmlNode(const std::string& command) {
             getDbl("visual_servo/sprint_max_vertical_correction", 0.08));
         std::string vs_sprint_loss_grace = std::to_string(
             getDbl("visual_servo/sprint_target_loss_grace", 1.50));
+        std::string vs_close_loss_grace = std::to_string(
+            getDbl("visual_servo/close_target_loss_grace", 0.30));
         std::string vs_strike_altitude = std::to_string(getDbl("visual_servo/strike_altitude", 0.40));
         std::string vs_descent_velocity = std::to_string(getDbl("visual_servo/descent_velocity", 0.22));
         std::string vs_descent_tolerance = std::to_string(getDbl("visual_servo/descent_tolerance", 0.05));
@@ -533,6 +535,7 @@ std::string commandToXmlNode(const std::string& command) {
             "sprint_altitude_hold_gain=\"" + vs_sprint_altitude_hold_gain + "\" "
             "sprint_max_vertical_correction=\"" + vs_sprint_max_vertical_correction + "\" "
             "sprint_target_loss_grace=\"" + vs_sprint_loss_grace + "\" "
+            "close_target_loss_grace=\"" + vs_close_loss_grace + "\" "
             "strike_altitude=\"" + vs_strike_altitude + "\" descent_velocity=\"" + vs_descent_velocity + "\" "
             "descent_tolerance=\"" + vs_descent_tolerance + "\" descent_timeout=\"" + vs_descent_timeout + "\" "
             "heading_hold_gain=\"" + vs_heading_gain + "\" heading_hold_max_rate=\"" + vs_heading_rate + "\" "
