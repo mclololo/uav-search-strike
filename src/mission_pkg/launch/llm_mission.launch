@@ -167,8 +167,10 @@
     <param name="visual_servo/sprint_altitude_hold_gain" value="1.5" type="double"/>
     <param name="visual_servo/sprint_max_vertical_correction" value="0.08" type="double"/>
     <param name="visual_servo/sprint_target_loss_grace"  value="1.50"   type="double"/>
-    <!-- 近距离确认目标后的丢失宽限：近距离丢框≈气球已爆，0.3s 内立即判命中并撤离 -->
-    <param name="visual_servo/close_target_loss_grace"   value="0.30"   type="double"/>
+    <!-- 近距离确认目标后的丢失宽限：近距离丢框≈气球已爆，0.2s 内立即判命中并撤离 -->
+    <param name="visual_servo/close_target_loss_grace"   value="0.20"   type="double"/>
+    <!-- 命中后主动阻尼增益：逃逸指令叠加与当前速度相反的分量，抵消前向惯性 -->
+    <param name="visual_servo/post_hit_brake_gain"        value="1.0"    type="double"/>
     <!-- 在0.70m发现目标后立即下降，并同步完成侧桨偏置对准 -->
     <param name="visual_servo/strike_altitude"            value="0.40"   type="double"/>
     <param name="visual_servo/descent_velocity"           value="0.22"   type="double"/>
@@ -217,6 +219,11 @@
     <param name="visual_servo/recovery_total_timeout"    value="3.0"   type="double"/>
     <param name="balloon_detection/confidence_threshold" value="0.60" type="double"/>
     <param name="target_tracker/lost_target_grace_time" value="1.5" type="double"/>
+    <!-- 爆裂检测：跟踪中面积骤降(连续2帧)即判气球爆裂，立即失效并封锁瘪皮重捕获 -->
+    <param name="target_tracker/pop_area_collapse_ratio" value="0.35" type="double"/>
+    <param name="target_tracker/pop_area_min_px"         value="5000" type="double"/>
+    <param name="target_tracker/pop_confirm_frames"      value="2"    type="int"/>
+    <param name="target_tracker/pop_reacquire_lockout"   value="0.8"  type="double"/>
 
     <!-- ============================================ -->
     <!-- 打击前主动扫描参数                            -->
