@@ -147,8 +147,6 @@ private:
     double post_hit_escape_distance_{0.10};
     double post_hit_escape_time_{0.60};
     double post_hit_escape_yaw_rate_{0.12};
-    // 命中后主动阻尼增益：逃逸指令中叠加与当前速度相反的分量，主动抵消前向惯性
-    double post_hit_brake_gain_{1.0};
 
     double recovery_delay_{0.15};
     double recovery_yaw_rate_{0.45};
@@ -237,8 +235,6 @@ private:
     NodeStatus executeWaiting();
     NodeStatus startRecovery();
     NodeStatus executeRecovery();
-    // 命中后逃逸指令：离墙方向速度 + 与当前速度相反的阻尼分量（主动抵消前向惯性）
-    void publishEscapeWithDamping(double escape_yaw_rate, double vz);
     NodeStatus startPostHitLift();
     NodeStatus executePostHitLift();
     NodeStatus finishAfterSettle();

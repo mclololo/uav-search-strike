@@ -41,14 +41,6 @@ PortsList TargetTracker::providedPorts() {
                                    "新息自适应参考值(px)：新息均值超过此值时自动放大过程噪声提升机动响应，0=关闭自适应"));
     ports.insert(InputPort<double>("kf_adapt_max_scale", 8.0,
                                    "过程噪声自适应最大放大倍数"));
-    ports.insert(InputPort<double>("pop_area_collapse_ratio", 0.35,
-                                   "爆裂检测：实测面积<预测面积×该值记一次骤降，0=关闭"));
-    ports.insert(InputPort<double>("pop_area_min_px", 5000.0,
-                                   "爆裂检测的预测面积下限(px^2)，远小框不检测"));
-    ports.insert(InputPort<int>("pop_confirm_frames", 2,
-                                "连续骤降帧数确认（防单帧抖动误判）"));
-    ports.insert(InputPort<double>("pop_reacquire_lockout", 0.8,
-                                   "判爆后封锁重捕获的时间(s)，防瘪皮重建跟踪"));
     ports.insert(OutputPort<PixelTarget>("pixel_target", "像素目标（中心+尺寸）"));
     return ports;
 }
@@ -68,10 +60,6 @@ NodeStatus TargetTracker::onStart() {
     kf_adapt_innov_ref_ = adapt_ref_res.value();
     auto adapt_scale_res = getInput<double>("kf_adapt_max_scale");
     kf_adapt_max_scale_ = adapt_scale_res.value();
-    pop_area_collapse_ratio_ = getInput<double>("pop_area_collapse_ratio").value();
-    pop_area_min_px_ = std::max(0.0, getInput<double>("pop_area_min_px").value());
-    pop_confirm_frames_ = std::max(1, getInput<int>("pop_confirm_frames").value());
-    pop_reacquire_lockout_ = std::max(0.0, getInput<double>("pop_reacquire_lockout").value());
 
     // 状态 8 维 [cx,vcx,cy,vcy,w,vw,h,vh]，量测 4 维 [cx,cy,w,h]，无控制输入
     kf_.init(8, 4, 0, CV_64F);
@@ -166,10 +154,6 @@ NodeStatus TargetTracker::handleDetectedObject(const common_msgs::Obj& obj) {
     const double now = ros::Time::now().toSec();
 
     if (!kf_initialized_) {
-        // 爆裂封锁期内：瘪皮/碎屑检测一律拒绝，防止在判爆后重新建立跟踪
-        if (now < pop_lockout_until_) {
-            return handleNoDetection();
-        }
         // 重捕获共识：要求连续两帧位置一致的检测才初始化滤波器。
         // 颜色误分类会让其他气球顶着目标类名瞬时出现一两帧，
         // 若见检即初始化，滤波器会锁到错误目标上（曾导致无人机追错气球）。
@@ -213,39 +197,6 @@ NodeStatus TargetTracker::handleDetectedObject(const common_msgs::Obj& obj) {
                 publishDebugEvent("track_gated", "jump=" + std::to_string(jump));
                 return handleNoDetection();
             }
-        }
-
-        // 爆裂检测：位置连续但面积骤降（气球爆裂瞬间的瘪皮/碎屑仍会被检出），
-        // 连续确认后立即判目标消失并封锁重捕获，不等瘪皮彻底检出不了（省 0.2~0.5s）
-        if (pop_area_collapse_ratio_ > 0.0) {
-            const double predicted_area = std::max(
-                1.0, kf_.statePost.at<double>(4) * kf_.statePost.at<double>(6));
-            const double measured_area = pixel_width * pixel_height;
-            if (predicted_area >= pop_area_min_px_ &&
-                measured_area < predicted_area * pop_area_collapse_ratio_) {
-                if (pop_streak_ > 0 && (now - pop_last_time_) > 0.3) pop_streak_ = 0;
-                ++pop_streak_;
-                pop_last_time_ = now;
-                if (pop_streak_ >= pop_confirm_frames_) {
-                    kf_initialized_ = false;
-                    has_pending_init_ = false;
-                    pop_streak_ = 0;
-                    pop_lockout_until_ = now + pop_reacquire_lockout_;
-                    PixelTarget empty_target;
-                    empty_target.timestamp = now;
-                    empty_target.is_detected = false;
-                    setOutput("pixel_target", empty_target);
-                    ROS_WARN("[%s]: POP detected: area %.0f -> %.0f px^2, invalidating target",
-                             name().c_str(), predicted_area, measured_area);
-                    publishDebugEvent("track_pop",
-                                      "area " + std::to_string(predicted_area) + "->" +
-                                      std::to_string(measured_area));
-                    return NodeStatus::RUNNING;
-                }
-                // 未达确认帧数：本帧按漏检处理（不送滤波器），KF 状态保持
-                return handleNoDetection();
-            }
-            pop_streak_ = 0;
         }
 
         // 新息自适应：偏差持续偏大说明目标在机动（如直线追击逼近），

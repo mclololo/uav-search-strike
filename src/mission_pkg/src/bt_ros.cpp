@@ -379,14 +379,6 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_success_area = std::to_string(getDbl("visual_servo/post_hit_success_area_ratio", 0.025));
         std::string vs_data_timeout = std::to_string(getDbl("visual_servo/data_timeout", 1.0));
         std::string tracker_grace_time = std::to_string(getDbl("target_tracker/lost_target_grace_time", 1.5));
-        std::string tracker_pop_ratio = std::to_string(
-            getDbl("target_tracker/pop_area_collapse_ratio", 0.35));
-        std::string tracker_pop_min_px = std::to_string(
-            getDbl("target_tracker/pop_area_min_px", 5000.0));
-        std::string tracker_pop_frames = std::to_string(
-            static_cast<int>(getDbl("target_tracker/pop_confirm_frames", 2)));
-        std::string tracker_pop_lockout = std::to_string(
-            getDbl("target_tracker/pop_reacquire_lockout", 0.8));
         std::string scan_phase_duration = std::to_string(getDbl("balloon_scan/phase_duration", 2.5));
         std::string scan_lateral_velocity = std::to_string(getDbl("balloon_scan/lateral_velocity", 0.0));
         std::string scan_backward_velocity = std::to_string(getDbl("balloon_scan/backward_velocity", 0.0));
@@ -471,8 +463,6 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_brake_speed = std::to_string(getDbl("visual_servo/brake_speed_threshold", 0.12));
         std::string vs_brake_hold = std::to_string(getDbl("visual_servo/brake_hold_time", 0.30));
         std::string vs_brake_timeout = std::to_string(getDbl("visual_servo/brake_timeout", 1.50));
-        std::string vs_brake_gain = std::to_string(
-            getDbl("visual_servo/post_hit_brake_gain", 1.0));
         std::string staging_tolerance = std::to_string(
             getDbl("balloon_scan/staging_tolerance", 0.10));
         std::string staging_yaw_tolerance = std::to_string(
@@ -515,11 +505,7 @@ std::string commandToXmlNode(const std::string& command) {
             "            <Timeout msec=\"50000\">\n"
             "              <Parallel success_count=\"1\" failure_count=\"1\">\n"
             "                <TargetTracker object_name=\"" + balloon_name + "\" confidence_threshold=\"" + balloon_conf + "\" pixel_target=\"{balloon_pixel}\" "
-            "lost_target_grace_time=\"" + tracker_grace_time + "\" "
-            "pop_area_collapse_ratio=\"" + tracker_pop_ratio + "\" "
-            "pop_area_min_px=\"" + tracker_pop_min_px + "\" "
-            "pop_confirm_frames=\"" + tracker_pop_frames + "\" "
-            "pop_reacquire_lockout=\"" + tracker_pop_lockout + "\"/>\n"
+            "lost_target_grace_time=\"" + tracker_grace_time + "\"/>\n"
             "                <VisualServo pixel_target=\"{balloon_pixel}\" "
             "k_p_yaw_rate=\"" + vs_k_p_yaw + "\" k_d_yaw_rate=\"" + vs_k_d_yaw + "\" "
             "k_p_vz=\"" + vs_k_p_vz + "\" k_d_vz=\"" + vs_k_d_vz + "\" "
@@ -573,7 +559,7 @@ std::string commandToXmlNode(const std::string& command) {
             "min_attack_altitude=\"" + vs_min_alt + "\" altitude_guard_margin=\"" + vs_altitude_guard + "\" "
             "altitude_recovery_speed=\"" + vs_altitude_recovery + "\" boundary_margin=\"" + vs_boundary_margin + "\" "
             "brake_speed_threshold=\"" + vs_brake_speed + "\" brake_hold_time=\"" + vs_brake_hold + "\" "
-            "brake_timeout=\"" + vs_brake_timeout + "\" post_hit_brake_gain=\"" + vs_brake_gain + "\"/>\n"
+            "brake_timeout=\"" + vs_brake_timeout + "\"/>\n"
             "              </Parallel>\n"
             "            </Timeout>\n"
             "        </Sequence>\n"

@@ -52,17 +52,6 @@ private:
     double kf_adapt_max_scale_{8.0};       // 过程噪声自适应最大放大倍数
     double innov_ema_{0.0};                // 新息幅值的指数滑动平均
 
-    // 爆裂检测：气球爆裂瞬间瘪皮/碎屑仍会被 YOLO 检出，等框彻底消失要 0.2~0.5s。
-    // 跟踪中目标面积骤降（连续 pop_confirm_frames_ 帧 < KF 预测面积 × collapse_ratio）
-    // 即判爆裂：立即输出无效目标并封锁重捕获，不再外推，让下游即刻判命中撤离。
-    double pop_area_collapse_ratio_{0.35};  // 实测面积 < 预测面积×该值 记一次骤降，0=关闭
-    double pop_area_min_px_{5000.0};        // 预测面积低于该值(px^2)不做爆裂检测（远框波动大）
-    int pop_confirm_frames_{2};             // 连续骤降帧数确认，防单帧检测抖动误判
-    double pop_reacquire_lockout_{0.8};     // 判爆后封锁重捕获的时间(s)，防止瘪皮重新建立跟踪
-    int pop_streak_{0};                     // 当前连续骤降计数
-    double pop_lockout_until_{0.0};         // 重捕获封锁截止时间
-    double pop_last_time_{0.0};             // 上一次骤降帧时间（帧间隔过大则重新计数）
-
     // 重捕获共识：滤波器未初始化时，要求连续两帧位置一致的检测才初始化，
     // 防止颜色误分类的瞬时错误检测把滤波器引到错误气球上
     bool has_pending_init_{false};

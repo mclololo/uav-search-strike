@@ -84,7 +84,7 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("sprint_altitude_hold_gain", 1.5, "冲刺高度保持增益"),
         InputPort<double>("sprint_max_vertical_correction", 0.08, "冲刺最大垂直修正速度"),
         InputPort<double>("sprint_target_loss_grace", 1.50, "冲刺中目标丢失后直线续航时间"),
-        InputPort<double>("close_target_loss_grace", 0.20,
+        InputPort<double>("close_target_loss_grace", 0.30,
                           "近距离确认目标后的丢失宽限(s)：近距离丢框≈气球已爆，立即判命中撤离"),
         InputPort<double>("data_timeout", 0.30, "目标数据超时"),
         InputPort<double>("startup_grace_time", 1.0, "首帧目标等待宽限"),
@@ -144,8 +144,6 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("post_hit_escape_distance", 0.10, "命中制动时的离墙距离"),
         InputPort<double>("post_hit_escape_time", 0.60, "命中制动时的离墙时间上限"),
         InputPort<double>("post_hit_escape_yaw_rate", 0.12, "命中制动时的最大偏航速度"),
-        InputPort<double>("post_hit_brake_gain", 1.0,
-                          "命中后主动阻尼增益：逃逸指令叠加与当前速度相反的分量，抵消前向惯性"),
         InputPort<double>("recovery_delay", 0.15, "丢失后恢复延迟"),
         InputPort<double>("recovery_yaw_rate", 0.45, "恢复扫描角速度"),
         InputPort<double>("recovery_total_timeout", 3.0, "恢复总超时"),
@@ -295,8 +293,6 @@ NodeStatus VisualServo::onStart() {
         0.0, getInput<double>("post_hit_escape_time").value());
     post_hit_escape_yaw_rate_ = std::max(
         0.0, getInput<double>("post_hit_escape_yaw_rate").value());
-    post_hit_brake_gain_ = std::max(
-        0.0, getInput<double>("post_hit_brake_gain").value());
     recovery_delay_ = getInput<double>("recovery_delay").value();
     recovery_yaw_rate_ = getInput<double>("recovery_yaw_rate").value();
     recovery_total_timeout_ = getInput<double>("recovery_total_timeout").value();
@@ -869,25 +865,6 @@ void VisualServo::publishWorldVelocityWithYawRate(double vx_world, double vy_wor
     publishVelocityWithYawRate(body_vx, body_vy, vz, yaw_rate);
 }
 
-void VisualServo::publishEscapeWithDamping(double escape_yaw_rate, double vz) {
-    double cmd_vx = post_hit_escape_velocity_ * std::cos(post_hit_escape_yaw_);
-    double cmd_vy = post_hit_escape_velocity_ * std::sin(post_hit_escape_yaw_);
-    if (post_hit_brake_gain_ > 0.0 && fcu_odom_ptr) {
-        // 主动阻尼：命令中叠加与当前速度相反的分量，主动抵消冲刺前向惯性，
-        // 而不是只发横向分量让控制器被动减速（那要滑行 ~0.5m 才能停住）
-        const auto& vel = fcu_odom_ptr->twist.twist.linear;
-        cmd_vx -= post_hit_brake_gain_ * vel.x;
-        cmd_vy -= post_hit_brake_gain_ * vel.y;
-        constexpr double kMaxCmdSpeed = 1.2;
-        const double mag = std::hypot(cmd_vx, cmd_vy);
-        if (mag > kMaxCmdSpeed) {
-            cmd_vx *= kMaxCmdSpeed / mag;
-            cmd_vy *= kMaxCmdSpeed / mag;
-        }
-    }
-    publishWorldVelocityWithYawRate(cmd_vx, cmd_vy, vz, escape_yaw_rate);
-}
-
 NodeStatus VisualServo::startBrake(BrakeOutcome outcome, const std::string& reason) {
     brake_outcome_ = outcome;
     finish_reason_ = reason;
@@ -902,7 +879,10 @@ NodeStatus VisualServo::startBrake(BrakeOutcome outcome, const std::string& reas
         const double escape_yaw_rate = std::clamp(
             normalizeYaw(post_hit_escape_yaw_ - current_yaw),
             -post_hit_escape_yaw_rate_, post_hit_escape_yaw_rate_);
-        publishEscapeWithDamping(escape_yaw_rate, 0.0);
+        publishWorldVelocityWithYawRate(
+            post_hit_escape_velocity_ * std::cos(post_hit_escape_yaw_),
+            post_hit_escape_velocity_ * std::sin(post_hit_escape_yaw_),
+            0.0, escape_yaw_rate);
     } else {
         publishVelocityWithYawRate(0, 0, 0, headingHoldYawRate());
     }
@@ -1013,7 +993,10 @@ NodeStatus VisualServo::executeBrake() {
         const double escape_yaw_rate = std::clamp(
             normalizeYaw(post_hit_escape_yaw_ - current_yaw),
             -post_hit_escape_yaw_rate_, post_hit_escape_yaw_rate_);
-        publishEscapeWithDamping(escape_yaw_rate, vz);
+        publishWorldVelocityWithYawRate(
+            post_hit_escape_velocity_ * std::cos(post_hit_escape_yaw_),
+            post_hit_escape_velocity_ * std::sin(post_hit_escape_yaw_),
+            vz, escape_yaw_rate);
         brake_hold_start_ = ros::Time(0);
         ROS_INFO_THROTTLE(0.25,
                           "[%s]: HIT brake escaping wall: progress=%.2f/%.2fm yaw=%.2f",
