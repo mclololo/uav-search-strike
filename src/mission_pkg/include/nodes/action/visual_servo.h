@@ -27,6 +27,7 @@ private:
         APPROACHING,
         SPRINTING,
         BRAKING,
+        FLY_AWAY,
         ENTERING_WAIT,
         WAITING,
         SETTLING,
@@ -62,6 +63,12 @@ private:
     geometry_msgs::Point wait_entry_origin_;
     geometry_msgs::Point brake_origin_;
     geometry_msgs::Point post_hit_lift_start_pos_;
+    // 鹰式撤离弧线（FLY_AWAY）状态：命中后速度指令从冲刺速度出发
+    // 连续旋转到"横移+爬升"，不与惯性对抗，打完即走的连贯动作
+    ros::Time arc_start_time_;
+    geometry_msgs::Point arc_start_pos_;
+    double arc_v0_fwd_{0.0};    // 命中瞬间沿走廊方向的前向速度(world, 带符号)
+    double arc_target_z_{0.0};  // 弧线目标高度 = 命中点高度 + post_hit_lift_height_
     double route_yaw_{0.0};
     double corridor_limit_distance_{0.0};
     double wait_entry_distance_{0.0};
@@ -231,6 +238,8 @@ private:
     NodeStatus executeSprint(bool target_visible, double target_age, double area_ratio,
                              double visual_yaw_rate);
     NodeStatus executeBrake();
+    // 命中后鹰式撤离弧线：前冲惯性平滑衰减 + 横移建立 + 同步爬升，一气呵成
+    NodeStatus executeFlyAway();
     NodeStatus executeWaitEntry();
     NodeStatus executeWaiting();
     NodeStatus startRecovery();

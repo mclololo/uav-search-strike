@@ -368,6 +368,8 @@ NodeStatus VisualServo::onRunning() {
     switch (state_) {
         case ServoState::BRAKING:
             return executeBrake();
+        case ServoState::FLY_AWAY:
+            return executeFlyAway();
         case ServoState::ENTERING_WAIT:
             return executeWaitEntry();
         case ServoState::WAITING:
@@ -872,24 +874,28 @@ NodeStatus VisualServo::startBrake(BrakeOutcome outcome, const std::string& reas
     state_start_time_ = ros::Time::now();
     brake_hold_start_ = ros::Time(0);
     brake_origin_ = fcu_odom_ptr->pose.pose.position;
-    if (outcome == BrakeOutcome::HIT && post_hit_escape_velocity_ > 0.0 &&
-        post_hit_escape_distance_ > 0.0 && post_hit_escape_time_ > 0.0) {
-        const double current_yaw = PoseUtils::getYawFromQuat(
-            fcu_odom_ptr->pose.pose.orientation);
-        const double escape_yaw_rate = std::clamp(
-            normalizeYaw(post_hit_escape_yaw_ - current_yaw),
-            -post_hit_escape_yaw_rate_, post_hit_escape_yaw_rate_);
-        publishWorldVelocityWithYawRate(
-            post_hit_escape_velocity_ * std::cos(post_hit_escape_yaw_),
-            post_hit_escape_velocity_ * std::sin(post_hit_escape_yaw_),
-            0.0, escape_yaw_rate);
+    if (outcome == BrakeOutcome::HIT) {
+        // 鹰式撤离弧线：速度指令从命中瞬间的实际速度出发，连续旋转到
+        // "横移离墙 + 爬升抬升"，顺着惯性带弯而不是对抗惯性（对头阻尼会
+        // 反冲向气球残骸/载车，实测更差已回退）。首拍指令 = 当前速度，
+        // 冲刺 -> 撤离全程无速度跳变。
+        arc_start_pos_ = brake_origin_;
+        arc_start_time_ = state_start_time_;
+        arc_target_z_ = brake_origin_.z + post_hit_lift_height_;
+        const auto& vel = fcu_odom_ptr->twist.twist.linear;
+        arc_v0_fwd_ = std::clamp(
+            vel.x * std::cos(route_yaw_) + vel.y * std::sin(route_yaw_),
+            -sprint_velocity_, sprint_velocity_);
+        state_ = ServoState::FLY_AWAY;
+        publishWorldVelocityWithYawRate(vel.x, vel.y, 0.0, headingHoldYawRate());
+        publishDebugEvent("strike_state", "FLY_AWAY arc started");
     } else {
         publishVelocityWithYawRate(0, 0, 0, headingHoldYawRate());
     }
     publishDebugEvent("strike_brake", reason);
-    ROS_WARN("[%s]: BRAKE outcome=%d reason=%s progress=%.2f remaining=%.2f",
+    ROS_WARN("[%s]: BRAKE outcome=%d reason=%s progress=%.2f remaining=%.2f v_fwd0=%.2f",
              name().c_str(), static_cast<int>(outcome), reason.c_str(),
-             corridorProgress(corridor_origin_), remainingSprintDistance());
+             corridorProgress(corridor_origin_), remainingSprintDistance(), arc_v0_fwd_);
     return NodeStatus::RUNNING;
 }
 
@@ -977,43 +983,9 @@ NodeStatus VisualServo::executeBrake() {
     const double vz = altitude < min_attack_altitude_
         ? std::abs(altitude_recovery_speed_) : 0.0;
 
-    const auto& position = fcu_odom_ptr->pose.pose.position;
-    const double escape_progress =
-        std::cos(post_hit_escape_yaw_) * (position.x - brake_origin_.x) +
-        std::sin(post_hit_escape_yaw_) * (position.y - brake_origin_.y);
-    const double brake_elapsed = (ros::Time::now() - state_start_time_).toSec();
-    const bool escape_active = brake_outcome_ == BrakeOutcome::HIT &&
-        post_hit_escape_velocity_ > 0.0 && post_hit_escape_distance_ > 0.0 &&
-        post_hit_escape_time_ > 0.0 &&
-        escape_progress < post_hit_escape_distance_ &&
-        brake_elapsed < post_hit_escape_time_;
-    if (escape_active) {
-        const double current_yaw = PoseUtils::getYawFromQuat(
-            fcu_odom_ptr->pose.pose.orientation);
-        const double escape_yaw_rate = std::clamp(
-            normalizeYaw(post_hit_escape_yaw_ - current_yaw),
-            -post_hit_escape_yaw_rate_, post_hit_escape_yaw_rate_);
-        publishWorldVelocityWithYawRate(
-            post_hit_escape_velocity_ * std::cos(post_hit_escape_yaw_),
-            post_hit_escape_velocity_ * std::sin(post_hit_escape_yaw_),
-            vz, escape_yaw_rate);
-        brake_hold_start_ = ros::Time(0);
-        ROS_INFO_THROTTLE(0.25,
-                          "[%s]: HIT brake escaping wall: progress=%.2f/%.2fm yaw=%.2f",
-                          name().c_str(), escape_progress,
-                          post_hit_escape_distance_, post_hit_escape_yaw_);
-        return NodeStatus::RUNNING;
-    }
-
-    double brake_yaw_rate = headingHoldYawRate();
-    if (brake_outcome_ == BrakeOutcome::HIT) {
-        const double current_yaw = PoseUtils::getYawFromQuat(
-            fcu_odom_ptr->pose.pose.orientation);
-        brake_yaw_rate = std::clamp(
-            normalizeYaw(route_yaw_ - current_yaw),
-            -post_hit_escape_yaw_rate_, post_hit_escape_yaw_rate_);
-    }
-    publishVelocityWithYawRate(0, 0, vz, brake_yaw_rate);
+    // HIT 命中不再进入制动：startBrake 直接切入 FLY_AWAY 撤离弧线。
+    // 此处仅处理 MISS_TO_WAIT（停稳后进入等待区）与 ABORT（停稳后收尾）。
+    publishVelocityWithYawRate(0, 0, vz, headingHoldYawRate());
 
     const double speed = currentSpeed();
     if (speed <= brake_speed_threshold_) {
@@ -1038,6 +1010,77 @@ NodeStatus VisualServo::executeBrake() {
     if ((ros::Time::now() - state_start_time_).toSec() >= brake_timeout_) {
         ROS_ERROR_THROTTLE(0.5, "[%s]: Braking slower than expected, speed=%.2f",
                            name().c_str(), speed);
+    }
+    return NodeStatus::RUNNING;
+}
+
+NodeStatus VisualServo::executeFlyAway() {
+    const ros::Time now = ros::Time::now();
+    const double t = (now - arc_start_time_).toSec();
+    const double altitude = fcu_odom_ptr->pose.pose.position.z;
+    const auto& position = fcu_odom_ptr->pose.pose.position;
+
+    // 弧线总时长以逃逸时间上限为基准；smoothstep 让指令矢量从冲刺方向
+    // 连续旋转到撤离方向，冲刺 -> 横移 -> 爬升一气呵成
+    const double arc_T = std::max(0.5, post_hit_escape_time_);
+    const double u = std::clamp(t / arc_T, 0.0, 1.0);
+    const double s = u * u * (3.0 - 2.0 * u);
+
+    // 1) 前向分量：命中瞬间的前冲速度按弧线进度平滑衰减到 0（顺势带弯）
+    const double fwd_x = std::cos(route_yaw_) * arc_v0_fwd_ * (1.0 - s);
+    const double fwd_y = std::sin(route_yaw_) * arc_v0_fwd_ * (1.0 - s);
+
+    // 2) 侧向分量：离墙方向速度随弧线平滑建立
+    const double esc_x = post_hit_escape_velocity_ * std::cos(post_hit_escape_yaw_);
+    const double esc_y = post_hit_escape_velocity_ * std::sin(post_hit_escape_yaw_);
+
+    // 3) 垂直分量：撤离的同时直接爬升到抬升目标（把原 LIFTING 阶段并入弧线），
+    //    低位保护兜底：低于最低攻击高度时强制向上
+    double vz = std::clamp((arc_target_z_ - altitude) / 0.8, -max_vz_, max_vz_);
+    if (altitude < min_attack_altitude_ + altitude_guard_margin_) {
+        vz = std::max(vz, std::abs(altitude_recovery_speed_));
+    }
+
+    const double vx = fwd_x + esc_x * s;
+    const double vy = fwd_y + esc_y * s;
+
+    // 安全门控：命令越界或冲刺走廊内出现硬障碍时立即悬停收尾
+    const double current_yaw = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
+    const double body_vx = std::cos(current_yaw) * vx + std::sin(current_yaw) * vy;
+    const double body_vy = std::sin(current_yaw) * vx - std::cos(current_yaw) * vy;
+    if (emergencyObstacleDetected() || !boundaryCommandSafe(body_vx, body_vy)) {
+        sendHoverCommand();
+        post_hit_lift_completed_ = true;
+        state_ = ServoState::SETTLING;
+        settle_start_time_ = now;
+        publishDebugEvent("strike_state", "FLY_AWAY blocked -> SETTLING");
+        ROS_WARN("[%s]: Fly-away arc blocked at t=%.2f, hover and settle",
+                 name().c_str(), t);
+        return NodeStatus::RUNNING;
+    }
+
+    // 机头以小角速度转向离墙方向（鹰式侧摆，不急转）
+    const double yaw_rate = std::clamp(
+        normalizeYaw(post_hit_escape_yaw_ - current_yaw),
+        -post_hit_escape_yaw_rate_, post_hit_escape_yaw_rate_);
+
+    publishWorldVelocityWithYawRate(vx, vy, vz, yaw_rate);
+
+    // 结束条件：侧移与爬升均到位，或超时兜底；此后进入 SETTLING，
+    // 抬升已在弧线内完成，finishAfterSettle 直接交还行为树
+    const double lateral_progress =
+        std::cos(post_hit_escape_yaw_) * (position.x - arc_start_pos_.x) +
+        std::sin(post_hit_escape_yaw_) * (position.y - arc_start_pos_.y);
+    const bool lateral_done = lateral_progress >= post_hit_escape_distance_;
+    const bool climb_done = altitude >= arc_target_z_ - post_hit_lift_tolerance_;
+    if ((lateral_done && climb_done) || t >= arc_T + 1.0) {
+        post_hit_lift_completed_ = true;
+        state_ = ServoState::SETTLING;
+        settle_start_time_ = now;
+        publishDebugEvent("strike_state", "FLY_AWAY -> SETTLING");
+        ROS_INFO("[%s]: Fly-away arc done: t=%.2f lateral=%.2f/%.2f z=%.2f/%.2f",
+                 name().c_str(), t, lateral_progress, post_hit_escape_distance_,
+                 altitude, arc_target_z_);
     }
     return NodeStatus::RUNNING;
 }
