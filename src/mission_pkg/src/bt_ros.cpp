@@ -334,19 +334,23 @@ std::string commandToXmlNode(const std::string& command) {
             getDbl(param_prefix + "/sprint_limit_ratio", 0.78));
         std::string vs_wait_entry_ratio = std::to_string(
             getDbl(param_prefix + "/wait_entry_ratio", 0.35));
+        // 命中后统一朝返航穿框方向转正；不能使用各气球区的局部离墙方向，
+        // 否则前视深度相机与实际返航路径不一致。
         std::string vs_post_hit_escape_yaw = std::to_string(
-            getDbl(param_prefix + "/post_hit_escape_yaw", 0.0));
+            getDbl("return_cross_frame/turn_yaw", 3.14159));
         std::string vs_post_hit_escape_velocity = std::to_string(
             getDbl(param_prefix + "/post_hit_escape_velocity",
                   getDbl("visual_servo/post_hit_escape_velocity", 0.18)));
         std::string vs_post_hit_escape_distance = std::to_string(
             getDbl(param_prefix + "/post_hit_escape_distance",
-                  getDbl("visual_servo/post_hit_escape_distance", 0.10)));
+                  getDbl("visual_servo/post_hit_escape_distance", 0.15)));
         std::string vs_post_hit_escape_time = std::to_string(
             getDbl(param_prefix + "/post_hit_escape_time",
                   getDbl("visual_servo/post_hit_escape_time", 0.60)));
         std::string vs_post_hit_escape_yaw_rate = std::to_string(
-            getDbl("visual_servo/post_hit_escape_yaw_rate", 0.12));
+            getDbl("visual_servo/post_hit_escape_yaw_rate", 0.60));
+        std::string vs_post_hit_verify_time = std::to_string(
+            getDbl("visual_servo/post_hit_verify_time", 1.0));
         std::string vs_hit_offset_reference_depth = std::to_string(
             getDbl("visual_servo/hit_offset_reference_depth", 0.80));
         std::string vs_max_hit_offset_ratio = std::to_string(
@@ -369,6 +373,16 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_sprint_t = std::to_string(getDbl("visual_servo/sprint_time", 6.0));
         std::string vs_sprint_lift = std::to_string(getDbl("visual_servo/sprint_lift_velocity", 0.0));
         std::string vs_sprint_lock = getBool("visual_servo/sprint_lock_visual_correction", true) ? "true" : "false";
+        std::string vs_sprint_visual_yaw = std::to_string(
+            getDbl("visual_servo/sprint_visual_max_yaw_rate", 0.20));
+        std::string vs_sprint_target_lead_time = std::to_string(
+            getDbl("visual_servo/sprint_target_lead_time", 0.25));
+        std::string vs_sprint_target_lead_max_px = std::to_string(
+            getDbl("visual_servo/sprint_target_lead_max_px", 40.0));
+        std::string vs_sprint_realign_error_px = std::to_string(
+            getDbl("visual_servo/sprint_realign_error_px", 32.0));
+        std::string vs_sprint_realign_frames = std::to_string(
+            static_cast<int>(getDbl("visual_servo/sprint_realign_frames", 2)));
         std::string vs_brake_v  = std::to_string(getDbl("visual_servo/post_hit_brake_velocity", 0.35));
         std::string vs_brake_t  = std::to_string(getDbl("visual_servo/post_hit_brake_time", 0.35));
         std::string vs_lift_h = std::to_string(getDbl("visual_servo/post_hit_lift_height", 0.35));
@@ -517,6 +531,11 @@ std::string commandToXmlNode(const std::string& command) {
             "sprint_limit_ratio=\"" + vs_sprint_limit_ratio + "\" "
             "wait_entry_ratio=\"" + vs_wait_entry_ratio + "\" "
             "sprint_lift_velocity=\"" + vs_sprint_lift + "\" sprint_lock_visual_correction=\"" + vs_sprint_lock + "\" "
+            "sprint_visual_max_yaw_rate=\"" + vs_sprint_visual_yaw + "\" "
+            "sprint_target_lead_time=\"" + vs_sprint_target_lead_time + "\" "
+            "sprint_target_lead_max_px=\"" + vs_sprint_target_lead_max_px + "\" "
+            "sprint_realign_error_px=\"" + vs_sprint_realign_error_px + "\" "
+            "sprint_realign_frames=\"" + vs_sprint_realign_frames + "\" "
             "post_hit_brake_velocity=\"" + vs_brake_v + "\" post_hit_brake_time=\"" + vs_brake_t + "\" "
             "post_hit_lift_height=\"" + vs_lift_h + "\" post_hit_lift_time=\"" + vs_lift_t + "\" "
             "post_hit_lift_timeout=\"" + vs_lift_timeout + "\" post_hit_lift_tolerance=\"" + vs_lift_tol + "\" "
@@ -526,6 +545,7 @@ std::string commandToXmlNode(const std::string& command) {
             "post_hit_escape_distance=\"" + vs_post_hit_escape_distance + "\" "
             "post_hit_escape_time=\"" + vs_post_hit_escape_time + "\" "
             "post_hit_escape_yaw_rate=\"" + vs_post_hit_escape_yaw_rate + "\" "
+            "post_hit_verify_time=\"" + vs_post_hit_verify_time + "\" "
             "data_timeout=\"" + vs_data_timeout + "\" startup_grace_time=\"" + vs_startup_grace + "\" "
             "strike_stable_time=\"" + vs_stable_time + "\" sprint_alignment_tolerance_px=\"" + vs_alignment_tolerance + "\" "
             "sprint_vertical_alignment_tolerance_px=\"" + vs_vertical_alignment_tolerance + "\" "
