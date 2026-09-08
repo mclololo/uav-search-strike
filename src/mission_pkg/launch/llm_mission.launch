@@ -66,7 +66,6 @@
 
     <!-- 降落 / 返航 -->
     <param name="land/return_high_pos" value="0.0;0.0;1.4" type="str"/> <!-- 规划返航到起点上方 -->
-    <param name="land/return_low_pos"  value="0.0;0.0;0.5" type="str"/> <!-- 降落前低位点 -->
     <param name="land/return_yaw" value="0.0" type="double"/>         <!-- 降落前航向(rad) -->
     <param name="land/planning_yaw_rate" value="0.25" type="double"/> <!-- 返航规划时机头转向速度(rad/s) -->
     <param name="land/final_yaw_rate" value="0.25" type="double"/>    <!-- 降落前原地转向速度(rad/s) -->

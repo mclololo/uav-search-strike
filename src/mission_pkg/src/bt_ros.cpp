@@ -590,7 +590,6 @@ std::string commandToXmlNode(const std::string& command) {
     // ---- land ----
     if (cmd == "land") {
         std::string return_high_pos = getStr("land/return_high_pos", "0.0;0.0;1.4");
-        std::string return_low_pos = getStr("land/return_low_pos", "0.0;0.0;0.5");
         double ret_yaw = getDbl("land/return_yaw", 0.0);
         double plan_yaw_rate = getDbl("land/planning_yaw_rate", 0.25);
         double final_yaw_rate = getDbl("land/final_yaw_rate", 0.25);
@@ -599,8 +598,7 @@ std::string commandToXmlNode(const std::string& command) {
             "      <PlanningControl goal=\"" + return_high_pos + "\" use_home_xy=\"true\" control_yaw=\"true\" yaw_rate=\"" + std::to_string(plan_yaw_rate) + "\"/>\n"
             "      <!-- 到起飞区上方后先原地平滑转到降落航向 -->\n"
             "      <GoTo yaw=\"" + std::to_string(ret_yaw) + "\" yaw_rate=\"" + std::to_string(final_yaw_rate) + "\"/>\n"
-            "      <!-- 继续用规划器在起飞区内下降，避免低空直线切障碍 -->\n"
-            "      <PlanningControl goal=\"" + return_low_pos + "\" use_home_xy=\"true\" control_yaw=\"true\" yaw_rate=\"" + std::to_string(plan_yaw_rate) + "\"/>\n"
+            "      <!-- 保持在起点上方，转向完成后直接交给飞控 AUTO.LAND -->\n"
             "      <Land/>\n";
     }
 
