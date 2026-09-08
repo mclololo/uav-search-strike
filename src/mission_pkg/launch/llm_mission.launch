@@ -66,7 +66,6 @@
 
     <!-- 降落 / 返航 -->
     <param name="land/return_high_pos" value="0.0;0.0;1.4" type="str"/> <!-- 规划返航到起点上方 -->
-    <param name="land/return_low_pos"  value="0.0;0.0;0.5" type="str"/> <!-- 降落前低位点 -->
     <param name="land/return_yaw" value="0.0" type="double"/>         <!-- 降落前航向(rad) -->
     <param name="land/planning_yaw_rate" value="0.25" type="double"/> <!-- 返航规划时机头转向速度(rad/s) -->
     <param name="land/final_yaw_rate" value="0.25" type="double"/>    <!-- 降落前原地转向速度(rad/s) -->
@@ -93,12 +92,12 @@
     <param name="balloon_zone_A/approach_pos" value="5.3;1.1;1.0"  type="str"/>
     <param name="balloon_zone_A/goal"         value="5.3;1.1;0.70" type="str"/>
     <param name="balloon_zone_A/yaw"          value="3.14159"       type="double"/>
-    <param name="balloon_zone_A/hit_offset_x" value="45.0" type="double"/>
+    <param name="balloon_zone_A/hit_offset_x" value="20.0" type="double"/>
     <param name="balloon_zone_A/corridor_reference_length" value="5.20" type="double"/>
     <param name="balloon_zone_A/sprint_limit_ratio" value="0.86" type="double"/>
     <param name="balloon_zone_A/target_zone_far_ratio" value="0.78" type="double"/>
     <param name="balloon_zone_A/wait_entry_ratio" value="0.35" type="double"/>
-    <param name="balloon_zone_A/post_hit_escape_yaw" value="-1.5708" type="double"/>
+    <!-- 命中后逃逸航向统一使用 return_cross_frame/turn_yaw。 -->
     <!-- B区 (紫色气球) -->
     <param name="balloon_zone_B/approach_pos" value="5.3;-2.60;1.0" type="str"/>
     <param name="balloon_zone_B/goal"         value="5.3;-2.60;0.70" type="str"/>
@@ -111,20 +110,18 @@
     <param name="balloon_zone_B/wait_entry_ratio" value="0.0" type="double"/>
     <param name="balloon_zone_B/emergency_clearance" value="0.0" type="double"/>
     <param name="balloon_zone_B/boundary_margin" value="0.20" type="double"/>
-    <param name="balloon_zone_B/post_hit_escape_yaw" value="1.5708" type="double"/>
-    <param name="balloon_zone_B/post_hit_escape_distance" value="0.25" type="double"/>
+    <param name="balloon_zone_B/post_hit_escape_distance" value="0.15" type="double"/>
     <param name="balloon_zone_B/post_hit_escape_time" value="1.50" type="double"/>
     <!-- C区 (蓝色气球) -->
     <param name="balloon_zone_C/approach_pos" value="5.4;1.0;1.0"  type="str"/>
     <param name="balloon_zone_C/goal"         value="5.4;1.0;0.70" type="str"/>
     <param name="balloon_zone_C/yaw"          value="-1.5708"       type="double"/>
-    <param name="balloon_zone_C/hit_offset_x" value="-45.0" type="double"/>
+    <param name="balloon_zone_C/hit_offset_x" value="-20.0" type="double"/>
     <param name="balloon_zone_C/corridor_reference_length" value="5.00" type="double"/>
     <param name="balloon_zone_C/sprint_limit_ratio" value="0.76" type="double"/>
     <param name="balloon_zone_C/target_zone_far_ratio" value="0.76" type="double"/>
     <param name="balloon_zone_C/wait_entry_ratio" value="0.35" type="double"/>
     <param name="balloon_zone_C/emergency_clearance" value="0.0" type="double"/>
-    <param name="balloon_zone_C/post_hit_escape_yaw" value="3.14159" type="double"/>
 
     <!-- ============================================ -->
     <!-- VisualServo 视觉伺服参数（与手调 XML 一致）     -->
@@ -136,14 +133,23 @@
     <param name="visual_servo/approach_area_threshold"  value="0.035"  type="double"/>
     <param name="visual_servo/post_hit_success_area_ratio" value="0.025" type="double"/>
     <param name="visual_servo/forward_velocity"         value="0.35"  type="double"/>
-    <param name="visual_servo/sprint_velocity"          value="0.85"  type="double"/>
+    <!-- 降低冲刺动量，给移动气球留下可修正的时间与距离。 -->
+    <param name="visual_servo/sprint_velocity"          value="0.65"  type="double"/>
     <param name="visual_servo/sprint_time"              value="6.0"   type="double"/>
-    <param name="visual_servo/hit_offset_x"             value="50.0"  type="double"/>
+    <param name="visual_servo/hit_offset_x"             value="15.0"  type="double"/>
     <param name="visual_servo/hit_offset_y"             value="0.0"   type="double"/>
     <param name="visual_servo/hit_offset_reference_depth" value="0.80" type="double"/>
     <param name="visual_servo/max_hit_offset_ratio"       value="0.35" type="double"/>
     <param name="visual_servo/sprint_lift_velocity"     value="0.0"  type="double"/>
-    <param name="visual_servo/sprint_lock_visual_correction" value="true" type="bool"/>
+    <!-- 冲刺保留受走廊约束的视觉航向修正，防止移动气球从桨盘旁掠过。 -->
+    <param name="visual_servo/sprint_lock_visual_correction" value="false" type="bool"/>
+    <param name="visual_servo/sprint_visual_max_yaw_rate" value="0.25" type="double"/>
+    <!-- 根据真实检测到的横向气球速度提前瞄准，避免追着当前位置擦边飞过。 -->
+    <param name="visual_servo/sprint_target_lead_time" value="0.25" type="double"/>
+    <param name="visual_servo/sprint_target_lead_max_px" value="40.0" type="double"/>
+    <!-- 冲刺期间目标横向跑出打击带时，停下重新对准而不是继续擦边前冲。 -->
+    <param name="visual_servo/sprint_realign_error_px" value="32.0" type="double"/>
+    <param name="visual_servo/sprint_realign_frames" value="2" type="int"/>
     <param name="visual_servo/post_hit_brake_velocity"  value="0.0"   type="double"/>
     <param name="visual_servo/post_hit_brake_time"      value="1.5"   type="double"/>
     <param name="visual_servo/post_hit_lift_height"     value="0.35"  type="double"/>
@@ -151,21 +157,28 @@
     <param name="visual_servo/post_hit_lift_timeout"    value="1.0"   type="double"/>
     <param name="visual_servo/post_hit_lift_tolerance"  value="0.12"  type="double"/>
     <param name="visual_servo/post_hit_settle_time"     value="0.45"  type="double"/>
-    <param name="visual_servo/post_hit_escape_velocity" value="0.18" type="double"/>
-    <param name="visual_servo/post_hit_escape_distance" value="0.10" type="double"/>
-    <param name="visual_servo/post_hit_escape_time"     value="0.60" type="double"/>
-    <param name="visual_servo/post_hit_escape_yaw_rate" value="0.12" type="double"/>
+    <!-- 命中后先悬停确认；期间重检到气球则继续打击，否则逃逸。 -->
+    <param name="visual_servo/post_hit_verify_time"     value="1.0"   type="double"/>
+    <!-- 命中后先原地转正至逃逸方向，再沿机头方向撤离，避免横滚侧飞。 -->
+    <param name="visual_servo/post_hit_escape_velocity" value="0.28" type="double"/>
+    <param name="visual_servo/post_hit_escape_distance" value="0.15" type="double"/>
+    <param name="visual_servo/post_hit_escape_time"     value="1.20" type="double"/>
+    <param name="visual_servo/post_hit_escape_yaw_rate" value="0.60" type="double"/>
     <param name="visual_servo/data_timeout"              value="0.50"   type="double"/>
     <param name="visual_servo/startup_grace_time"        value="1.0"    type="double"/>
-    <param name="visual_servo/strike_stable_time"        value="0.15"   type="double"/>
-    <param name="visual_servo/sprint_alignment_tolerance_px" value="24.0" type="double"/>
+    <param name="visual_servo/strike_stable_time"        value="0.25"   type="double"/>
+    <param name="visual_servo/sprint_alignment_tolerance_px" value="16.0" type="double"/>
     <param name="visual_servo/sprint_vertical_alignment_tolerance_px" value="180.0" type="double"/>
-    <param name="visual_servo/sprint_alignment_stable_frames" value="2" type="int"/>
+    <param name="visual_servo/sprint_alignment_stable_frames" value="3" type="int"/>
     <param name="visual_servo/sprint_altitude_tolerance" value="0.04" type="double"/>
     <param name="visual_servo/sprint_vertical_speed_tolerance" value="0.06" type="double"/>
     <param name="visual_servo/sprint_altitude_hold_gain" value="1.5" type="double"/>
     <param name="visual_servo/sprint_max_vertical_correction" value="0.08" type="double"/>
-    <param name="visual_servo/sprint_target_loss_grace"  value="1.50"   type="double"/>
+    <param name="visual_servo/sprint_target_loss_grace"  value="0.60"   type="double"/>
+    <!-- 近距离确认目标后的丢失宽限：近距离丢框≈气球已爆，0.2s 内立即判命中并撤离 -->
+    <param name="visual_servo/close_target_loss_grace"   value="0.20"   type="double"/>
+    <!-- 命中后主动阻尼增益：逃逸指令叠加与当前速度相反的分量，抵消前向惯性 -->
+    <param name="visual_servo/post_hit_brake_gain"        value="1.0"    type="double"/>
     <!-- 在0.70m发现目标后立即下降，并同步完成侧桨偏置对准 -->
     <param name="visual_servo/strike_altitude"            value="0.40"   type="double"/>
     <param name="visual_servo/descent_velocity"           value="0.22"   type="double"/>
@@ -174,7 +187,7 @@
     <param name="visual_servo/heading_hold_gain"          value="1.5"    type="double"/>
     <param name="visual_servo/heading_hold_max_rate"      value="0.30"   type="double"/>
     <param name="visual_servo/wait_velocity"              value="0.16"   type="double"/>
-    <param name="visual_servo/wait_timeout"               value="12.0"   type="double"/>
+    <param name="visual_servo/wait_timeout"               value="14.0"   type="double"/>
     <param name="visual_servo/wait_no_target_timeout"     value="0.5"    type="double"/>
     <param name="visual_servo/wait_contact_distance"      value="0.42"   type="double"/>
     <!-- 深度点云关联气球及其低位载车；墙、地面和立柱仍是硬障碍 -->
@@ -214,12 +227,17 @@
     <param name="visual_servo/recovery_total_timeout"    value="3.0"   type="double"/>
     <param name="balloon_detection/confidence_threshold" value="0.60" type="double"/>
     <param name="target_tracker/lost_target_grace_time" value="1.5" type="double"/>
+    <!-- 爆裂检测：跟踪中面积骤降(连续2帧)即判气球爆裂，立即失效并封锁瘪皮重捕获 -->
+    <param name="target_tracker/pop_area_collapse_ratio" value="0.35" type="double"/>
+    <param name="target_tracker/pop_area_min_px"         value="5000" type="double"/>
+    <param name="target_tracker/pop_confirm_frames"      value="2"    type="int"/>
+    <param name="target_tracker/pop_reacquire_lockout"   value="0.8"  type="double"/>
 
     <!-- ============================================ -->
     <!-- 打击前主动扫描参数                            -->
     <!-- ============================================ -->
     <param name="balloon_scan/yaw_rate"             value="0.0" type="double"/>
-    <param name="balloon_scan/timeout"              value="45.0" type="double"/>
+    <param name="balloon_scan/timeout"              value="50.0" type="double"/>
     <param name="balloon_scan/center_gate_x_ratio"  value="0.35" type="double"/>
     <param name="balloon_scan/center_gate_y_ratio"  value="0.45" type="double"/>
     <param name="balloon_scan/stable_frames"        value="1"    type="int"/>

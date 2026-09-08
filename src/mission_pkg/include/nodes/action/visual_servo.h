@@ -27,6 +27,9 @@ private:
         APPROACHING,
         SPRINTING,
         BRAKING,
+        POST_HIT_VERIFY,
+        FLY_AWAY_TURN,
+        FLY_AWAY,
         ENTERING_WAIT,
         WAITING,
         SETTLING,
@@ -49,11 +52,19 @@ private:
     ros::Time state_start_time_;
     ros::Time stable_track_start_;
     ros::Time brake_hold_start_;
+    ros::Time escape_turn_start_time_;
+    ros::Time escape_turn_command_time_;
     ros::Time settle_start_time_;
     ros::Time lift_start_time_;
     ros::Time wait_last_target_time_;
+    double last_target_measurement_stamp_{0.0};
+    double last_target_center_x_{0.0};
+    double target_x_velocity_px_s_{0.0};
     bool has_ever_received_data_{false};
     bool close_target_seen_{false};
+    // Updated only by real detections. A target leaving the image from the side
+    // must not be mistaken for a balloon that burst at the propeller plane.
+    bool last_close_target_in_strike_band_{false};
     double max_area_ratio_{0.0};
     int align_stable_frames_{0};
     mutable std::mutex target_mutex_;
@@ -62,6 +73,13 @@ private:
     geometry_msgs::Point wait_entry_origin_;
     geometry_msgs::Point brake_origin_;
     geometry_msgs::Point post_hit_lift_start_pos_;
+    geometry_msgs::Point escape_turn_hold_pos_;
+    double escape_turn_yaw_setpoint_{0.0};
+    // 命中后先在 FLY_AWAY_TURN 悬停转正，再进入 FLY_AWAY 沿机头方向撤离。
+    ros::Time arc_start_time_;
+    geometry_msgs::Point arc_start_pos_;
+    double arc_v0_fwd_{0.0};    // 命中瞬间沿走廊方向的前向速度(world, 带符号)
+    double arc_target_z_{0.0};  // 弧线目标高度 = 命中点高度 + post_hit_lift_height_
     double route_yaw_{0.0};
     double corridor_limit_distance_{0.0};
     double wait_entry_distance_{0.0};
@@ -93,6 +111,12 @@ private:
     double sprint_velocity_{0.85};
     double sprint_time_{6.0};
     bool sprint_lock_visual_correction_{false};
+    double sprint_visual_max_yaw_rate_{0.20};
+    double sprint_target_lead_time_{0.25};
+    double sprint_target_lead_max_px_{40.0};
+    double sprint_realign_error_px_{32.0};
+    int sprint_realign_frames_{2};
+    int sprint_realign_bad_frames_{0};
     double hit_offset_x_{45.0};
     double hit_offset_y_{0.0};
     double hit_offset_reference_depth_{0.80};
@@ -109,6 +133,8 @@ private:
     double sprint_altitude_hold_gain_{1.5};
     double sprint_max_vertical_correction_{0.08};
     double sprint_target_loss_grace_{1.50};
+    // 近距离确认目标后的丢失宽限：近距离丢框≈气球已爆，用短宽限立即判命中
+    double close_target_loss_grace_{0.30};
     double data_timeout_{0.30};
     double startup_grace_time_{1.0};
     double max_alignment_yaw_deviation_{0.15};
@@ -133,6 +159,7 @@ private:
     double brake_hold_time_{0.30};
     double brake_timeout_{1.80};
     double post_hit_settle_time_{0.45};
+    double post_hit_verify_time_{1.0};
     double post_hit_lift_height_{0.35};
     double post_hit_lift_time_{0.45};
     double post_hit_lift_timeout_{1.0};
@@ -142,9 +169,9 @@ private:
     bool post_hit_lift_completed_{false};
     double post_hit_escape_yaw_{0.0};
     double post_hit_escape_velocity_{0.18};
-    double post_hit_escape_distance_{0.10};
+    double post_hit_escape_distance_{0.15};
     double post_hit_escape_time_{0.60};
-    double post_hit_escape_yaw_rate_{0.12};
+    double post_hit_escape_yaw_rate_{0.60};
 
     double recovery_delay_{0.15};
     double recovery_yaw_rate_{0.45};
@@ -227,8 +254,12 @@ private:
     NodeStatus startBrake(BrakeOutcome outcome, const std::string& reason);
     void enterSprint(const ros::Time& now);
     NodeStatus executeSprint(bool target_visible, double target_age, double area_ratio,
-                             double visual_yaw_rate);
+                             double visual_yaw_rate, double predicted_error_px);
     NodeStatus executeBrake();
+    NodeStatus executePostHitVerify();
+    // 命中后先原地转向撤离方向，再沿机头方向撤离。
+    NodeStatus executeFlyAwayTurn();
+    NodeStatus executeFlyAway();
     NodeStatus executeWaitEntry();
     NodeStatus executeWaiting();
     NodeStatus startRecovery();

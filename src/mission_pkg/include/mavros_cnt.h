@@ -112,6 +112,9 @@ private:
 
   // 安全边界
   SafetyBoundary safety_boundary_;
+  // 越界再入裕量：越界悬停点向界内夹回的距离(m)，
+  // 保证无人机能飞回界内使 hover lock 自解锁（否则钉在界外永久死锁）
+  double reentry_margin_ = 0.5;
   
   // 悬停状态 (用于边界保护)
   bool hover_locked_ = false;  // 重命名以区别于 DroneActionNode
