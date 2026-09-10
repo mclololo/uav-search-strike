@@ -7,6 +7,7 @@
 
 #include "base/drone_action_node.h"
 
+#include <atomic>
 #include <limits>
 #include <mutex>
 #include <ros/time.h>
@@ -19,6 +20,7 @@ public:
     static PortsList providedPorts();
     NodeStatus onStart() override;
     NodeStatus onRunning() override;
+    void onHalted() override;
 
 private:
     enum class ServoState {
@@ -54,6 +56,8 @@ private:
     ros::Time wait_last_target_time_;
     bool has_ever_received_data_{false};
     bool close_target_seen_{false};
+    // Navigation remains covered until this strike node starts at the search point.
+    std::atomic<bool> depth_assist_active_{true};
     double max_area_ratio_{0.0};
     int align_stable_frames_{0};
     mutable std::mutex target_mutex_;
@@ -211,6 +215,7 @@ private:
     double remainingSprintDistance() const;
 
     void depthCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& msg);
+    void setDepthAssistActive(bool active);
     bool getDepthSnapshot(double& hard_clearance, double& target_depth) const;
     bool getDepthSnapshot(double& hard_clearance, double& target_depth,
                           double& target_lateral, double& target_closing_speed) const;

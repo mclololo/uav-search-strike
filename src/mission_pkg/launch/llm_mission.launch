@@ -93,7 +93,7 @@
     <param name="balloon_zone_A/approach_pos" value="5.3;1.1;1.0"  type="str"/>
     <param name="balloon_zone_A/goal"         value="5.3;1.1;0.70" type="str"/>
     <param name="balloon_zone_A/yaw"          value="3.14159"       type="double"/>
-    <param name="balloon_zone_A/hit_offset_x" value="45.0" type="double"/>
+    <param name="balloon_zone_A/hit_offset_x" value="35.0" type="double"/>
     <param name="balloon_zone_A/corridor_reference_length" value="5.20" type="double"/>
     <param name="balloon_zone_A/sprint_limit_ratio" value="0.86" type="double"/>
     <param name="balloon_zone_A/target_zone_far_ratio" value="0.78" type="double"/>
@@ -104,7 +104,7 @@
     <param name="balloon_zone_B/goal"         value="5.3;-2.60;0.70" type="str"/>
     <param name="balloon_zone_B/search_pos"   value="5.3;-2.60;0.70" type="str"/>
     <param name="balloon_zone_B/yaw"          value="3.14159"       type="double"/>
-    <param name="balloon_zone_B/hit_offset_x" value="-5.0" type="double"/>
+    <param name="balloon_zone_B/hit_offset_x" value="-10.0" type="double"/>
     <param name="balloon_zone_B/corridor_reference_length" value="5.20" type="double"/>
     <param name="balloon_zone_B/sprint_limit_ratio" value="0.78" type="double"/>
     <param name="balloon_zone_B/target_zone_far_ratio" value="0.78" type="double"/>
@@ -129,13 +129,13 @@
     <!-- ============================================ -->
     <!-- VisualServo 视觉伺服参数（与手调 XML 一致）     -->
     <!-- ============================================ -->
-    <param name="visual_servo/k_p_yaw_rate"            value="0.006" type="double"/>
-    <param name="visual_servo/k_d_yaw_rate"            value="0.002" type="double"/>
+    <param name="visual_servo/k_p_yaw_rate"            value="0.004" type="double"/>
+    <param name="visual_servo/k_d_yaw_rate"            value="0.001" type="double"/>
     <param name="visual_servo/k_p_vz"                  value="0.015" type="double"/>
     <param name="visual_servo/k_d_vz"                  value="0.006" type="double"/>
     <param name="visual_servo/approach_area_threshold"  value="0.035"  type="double"/>
     <param name="visual_servo/post_hit_success_area_ratio" value="0.025" type="double"/>
-    <param name="visual_servo/forward_velocity"         value="0.35"  type="double"/>
+    <param name="visual_servo/forward_velocity"         value="0.9"   type="double"/>
     <param name="visual_servo/sprint_velocity"          value="0.85"  type="double"/>
     <param name="visual_servo/sprint_time"              value="6.0"   type="double"/>
     <param name="visual_servo/hit_offset_x"             value="50.0"  type="double"/>
@@ -218,7 +218,7 @@
     <!-- ============================================ -->
     <!-- 打击前主动扫描参数                            -->
     <!-- ============================================ -->
-    <param name="balloon_scan/yaw_rate"             value="0.0" type="double"/>
+    <param name="balloon_scan/yaw_rate"             value="0.35" type="double"/>
     <param name="balloon_scan/timeout"              value="45.0" type="double"/>
     <param name="balloon_scan/center_gate_x_ratio"  value="0.35" type="double"/>
     <param name="balloon_scan/center_gate_y_ratio"  value="0.45" type="double"/>

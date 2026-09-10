@@ -65,7 +65,7 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("k_d_vz", 0.006, "垂直速度D增益"),
         InputPort<double>("max_vz", 0.3, "最大垂直速度"),
         InputPort<double>("deadzone_vz", 10.0, "垂直死区(pixel)"),
-        InputPort<double>("forward_velocity", 0.35, "常态接近速度"),
+        InputPort<double>("forward_velocity", 0.9, "常态接近速度"),
         InputPort<double>("sprint_velocity", 0.85, "直线冲刺速度"),
         InputPort<double>("sprint_time", 6.0, "冲刺最长时间"),
         InputPort<double>("hit_offset_x", 45.0, "侧桨打击像素偏置"),
@@ -304,6 +304,10 @@ NodeStatus VisualServo::onStart() {
     brake_outcome_ = BrakeOutcome::ABORT;
     has_ever_received_data_ = false;
     close_target_seen_ = false;
+    // VisualServo is started only after PlanningControl/GoTo reaches the search point.
+    // Keep the depth switch local to the strike phase; it does not disable EGO-Planner's
+    // /cloud_registered obstacle input while navigating to the search point.
+    setDepthAssistActive(false);
     max_area_ratio_ = 0.0;
     align_stable_frames_ = 0;
     prev_err_x_ = 0.0;
@@ -477,6 +481,11 @@ NodeStatus VisualServo::onRunning() {
     return NodeStatus::RUNNING;
 }
 
+void VisualServo::onHalted() {
+    setDepthAssistActive(false);
+    DroneActionNode::onHalted();
+}
+
 void VisualServo::updateTargetData() {
     auto result = getInput<PixelTarget>("pixel_target");
     if (!result || !result.value().is_detected) return;
@@ -585,7 +594,7 @@ double VisualServo::remainingSprintDistance() const {
 }
 
 void VisualServo::depthCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& msg) {
-    if (!msg || msg->data.empty()) return;
+    if (!depth_assist_active_.load() || !msg || msg->data.empty()) return;
 
     PixelTarget target;
     ros::Time target_time;
@@ -688,6 +697,7 @@ void VisualServo::depthCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& m
             (lateral_sign * positiveOr(rgb_focal_px_, 320.0));
     }
 
+    if (!depth_assist_active_.load()) return;
     std::lock_guard<std::mutex> lock(depth_mutex_);
     if (std::isfinite(balloon_depth)) {
         if (std::isfinite(previous_target_depth_) &&
@@ -717,6 +727,25 @@ void VisualServo::depthCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& m
     hard_corridor_points_ = hard_points;
 }
 
+void VisualServo::setDepthAssistActive(bool active) {
+    depth_assist_active_.store(false);
+    {
+        std::lock_guard<std::mutex> lock(depth_mutex_);
+        depth_frame_valid_ = false;
+        depth_cloud_time_ = ros::Time(0);
+        hard_front_clearance_ = std::numeric_limits<double>::infinity();
+        target_depth_ = std::numeric_limits<double>::infinity();
+        target_lateral_ = std::numeric_limits<double>::infinity();
+        target_closing_speed_ = 0.0;
+        previous_target_depth_ = std::numeric_limits<double>::infinity();
+        previous_target_depth_time_ = ros::Time(0);
+        hard_corridor_points_ = 0;
+    }
+    depth_assist_active_.store(active);
+    publishDebugEvent("strike_depth", active ? "wait-zone assist enabled"
+                                               : "strike assist disabled");
+}
+
 bool VisualServo::getDepthSnapshot(double& hard_clearance, double& target_depth) const {
     double target_lateral;
     double target_closing_speed;
@@ -727,6 +756,13 @@ bool VisualServo::getDepthSnapshot(double& hard_clearance, double& target_depth)
 bool VisualServo::getDepthSnapshot(double& hard_clearance, double& target_depth,
                                    double& target_lateral,
                                    double& target_closing_speed) const {
+    if (!depth_assist_active_.load()) {
+        hard_clearance = std::numeric_limits<double>::infinity();
+        target_depth = std::numeric_limits<double>::infinity();
+        target_lateral = std::numeric_limits<double>::infinity();
+        target_closing_speed = 0.0;
+        return false;
+    }
     std::lock_guard<std::mutex> lock(depth_mutex_);
     hard_clearance = hard_front_clearance_;
     target_depth = target_depth_;
@@ -778,6 +814,7 @@ bool VisualServo::targetInSprintZone(const PixelTarget& target, double area_rati
 }
 
 bool VisualServo::emergencyObstacleDetected() const {
+    if (!depth_assist_active_.load()) return false;
     std::lock_guard<std::mutex> lock(depth_mutex_);
     return depth_frame_valid_ &&
            (ros::Time::now() - depth_cloud_time_).toSec() <= depth_timeout_ &&
@@ -897,6 +934,7 @@ void VisualServo::enterSprint(const ros::Time& now) {
     state_ = ServoState::SPRINTING;
     state_start_time_ = now;
     close_target_seen_ = false;
+    setDepthAssistActive(false);
     publishDebugEvent("strike_state", "APPROACHING -> SPRINTING");
     ROS_INFO("[%s]: Straight sprint started: corridor_yaw=%.2f current_yaw=%.2f max_distance=%.2fm z=%.2f vz=%.2f",
              name().c_str(), route_yaw_, current_yaw, corridor_limit_distance_,
@@ -911,9 +949,9 @@ NodeStatus VisualServo::executeSprint(bool target_visible, double target_age,
                                            post_hit_success_area_ratio_);
         close_target_seen_ = close_target_seen_ || area_ratio >= close_area;
     } else if (target_age > sprint_target_loss_grace_) {
-        return startBrake(close_target_seen_ ? BrakeOutcome::HIT : BrakeOutcome::MISS_TO_WAIT,
-                          close_target_seen_ ? "close target disappeared during sprint"
-                                             : "target lost after blind sprint grace");
+        ROS_WARN_THROTTLE(0.5,
+                          "[%s]: Target lost during sprint; continuing to wait zone (close=%d)",
+                          name().c_str(), close_target_seen_);
     }
 
     if ((ros::Time::now() - state_start_time_).toSec() >= sprint_time_) {
@@ -929,10 +967,6 @@ NodeStatus VisualServo::executeSprint(bool target_visible, double target_age,
     }
     if (!boundaryCommandSafe(sprint_velocity_, 0.0)) {
         return startBrake(BrakeOutcome::MISS_TO_WAIT, "field boundary braking point reached");
-    }
-    if (emergencyObstacleDetected()) {
-        return startBrake(BrakeOutcome::MISS_TO_WAIT,
-                          "hard obstacle detected in sprint corridor");
     }
     const double altitude = fcu_odom_ptr->pose.pose.position.z;
     if (altitude < min_attack_altitude_) {
@@ -1005,7 +1039,7 @@ NodeStatus VisualServo::executeBrake() {
         if ((ros::Time::now() - brake_hold_start_).toSec() >= brake_hold_time_) {
             if (brake_outcome_ == BrakeOutcome::MISS_TO_WAIT) {
                 wait_entry_origin_ = fcu_odom_ptr->pose.pose.position;
-                close_target_seen_ = false;
+                setDepthAssistActive(true);
                 state_ = ServoState::ENTERING_WAIT;
                 state_start_time_ = ros::Time::now();
                 publishDebugEvent("strike_state", "BRAKING -> ENTERING_WAIT");
@@ -1048,7 +1082,6 @@ NodeStatus VisualServo::executeWaitEntry() {
         state_ = ServoState::WAITING;
         state_start_time_ = ros::Time::now();
         wait_last_target_time_ = state_start_time_;
-        close_target_seen_ = false;
         publishDebugEvent("strike_state", "ENTERING_WAIT -> WAITING");
         return NodeStatus::RUNNING;
     }
@@ -1058,7 +1091,6 @@ NodeStatus VisualServo::executeWaitEntry() {
         state_ = ServoState::WAITING;
         state_start_time_ = ros::Time::now();
         wait_last_target_time_ = state_start_time_;
-        close_target_seen_ = false;
         publishDebugEvent("strike_state", "ENTERING_WAIT blocked -> WAITING");
     }
     return NodeStatus::RUNNING;
@@ -1169,6 +1201,7 @@ NodeStatus VisualServo::finishAfterSettle() {
     if (success && !post_hit_lift_completed_ && post_hit_lift_height_ > 0.0) {
         return startPostHitLift();
     }
+    setDepthAssistActive(false);
     publishDebugEvent(success ? "strike_success" : "strike_failure", finish_reason_);
     return success ? NodeStatus::SUCCESS : NodeStatus::FAILURE;
 }

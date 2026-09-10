@@ -352,7 +352,7 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_max_hit_offset_ratio = std::to_string(
             getDbl("visual_servo/max_hit_offset_ratio", 0.35));
         
-        double scan_yaw_rate = getDbl("balloon_scan/yaw_rate", 0.0);
+        double scan_yaw_rate = getDbl("balloon_scan/yaw_rate", 0.35);
         double scan_timeout = getDbl("balloon_scan/timeout", 45.0);
         double scan_center_gate_x = getDbl("balloon_scan/center_gate_x_ratio", 0.22);
         double scan_center_gate_y = getDbl("balloon_scan/center_gate_y_ratio", 0.35);
@@ -364,7 +364,7 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_k_p_vz   = std::to_string(getDbl("visual_servo/k_p_vz", 0.01));
         std::string vs_k_d_vz   = std::to_string(getDbl("visual_servo/k_d_vz", 0.006));
         std::string vs_area_th  = std::to_string(getDbl("visual_servo/approach_area_threshold", 0.06));
-        std::string vs_fwd_vel  = std::to_string(getDbl("visual_servo/forward_velocity", 0.35));
+        std::string vs_fwd_vel  = std::to_string(getDbl("visual_servo/forward_velocity", 0.9));
         std::string vs_sprint_v = std::to_string(getDbl("visual_servo/sprint_velocity", 0.85));
         std::string vs_sprint_t = std::to_string(getDbl("visual_servo/sprint_time", 6.0));
         std::string vs_sprint_lift = std::to_string(getDbl("visual_servo/sprint_lift_velocity", 0.0));
