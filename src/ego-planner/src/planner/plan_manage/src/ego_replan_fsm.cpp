@@ -149,10 +149,9 @@ namespace ego_planner
       have_new_target_ = true;
 
       /*** FSM ***/
-      if (exec_state_ == WAIT_TARGET)
-        changeFSMExecState(GEN_NEW_TRAJ, "TRIG");
-      else if (exec_state_ == EXEC_TRAJ)
-        changeFSMExecState(REPLAN_TRAJ, "TRIG");
+      // A new global path starts at odom_pos_; the previous local trajectory
+      // cannot be used to replan against it, even if replan was in progress.
+      changeFSMExecState(GEN_NEW_TRAJ, "TRIG");
 
       // visualization_->displayGoalPoint(end_pt_, Eigen::Vector4d(1, 0, 0, 1), 0.3, 0);
       visualization_->displayGlobalPathList(gloabl_traj, 0.1, 0);
@@ -360,6 +359,15 @@ namespace ego_planner
     ros::Time time_now = ros::Time::now();
     double t_cur = (time_now - info->start_time_).toSec();
 
+    if (info->start_time_.isZero() || t_cur < 0.0 ||
+        t_cur >= info->duration_ - 1e-3)
+    {
+      start_pt_ = odom_pos_;
+      start_vel_ = odom_vel_;
+      start_acc_.setZero();
+      return callReboundReplan(true, false);
+    }
+
     //cout << "info->velocity_traj_=" << info->velocity_traj_.get_control_points() << endl;
 
     start_pt_ = info->position_traj_.evaluateDeBoorT(t_cur);
@@ -390,7 +398,8 @@ namespace ego_planner
     LocalTrajData *info = &planner_manager_->local_data_;
     auto map = planner_manager_->grid_map_;
 
-    if (exec_state_ == WAIT_TARGET || info->start_time_.toSec() < 1e-5)
+    if (exec_state_ == WAIT_TARGET || exec_state_ == GEN_NEW_TRAJ ||
+        info->start_time_.toSec() < 1e-5)
       return;
 
     /* ---------- check trajectory ---------- */

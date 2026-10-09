@@ -12,6 +12,7 @@
 #define MAVROS_CNT_H
 #include <ros/ros.h>
 #include <utils/common.hpp>
+#include <utils/pose_speed_estimator.h>
 #include <mutex>
 #include <memory>
 
@@ -53,6 +54,7 @@ public:
   const mavros_msgs::State *        getFcuState();
   bool         hasHomePosition() const;
   geometry_msgs::Point getHomePosition() const;
+  double getMeasuredSpeed() const;
   std::mutex &GetPoseMtx();
   ros::ServiceClient *              getSetModeClient();
   ros::ServiceClient *              getArmClient();
@@ -93,6 +95,7 @@ private:
   Param                      param;
   mavros_msgs::State         fcu_state;
   nav_msgs::Odometry         fcu_odom;
+  PoseSpeedEstimator        pose_speed_;
   geometry_msgs::Point       home_position_;
   bool                        home_position_recorded_ = false;
 

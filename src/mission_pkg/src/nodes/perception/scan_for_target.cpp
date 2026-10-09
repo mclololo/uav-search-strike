@@ -12,6 +12,7 @@ ScanForTarget::ScanForTarget(const std::string& name, const NodeConfig& config)
 
 PortsList ScanForTarget::providedPorts() {
     auto ports = baseProvidedPorts();
+    ports.insert(InputPort<Position3D>("staging_position", "World search point for stationary balloon scans"));
     ports.insert(InputPort<double>("yaw_rate", 0.35, "扫描偏航角速度(rad/s)"));
     ports.insert(InputPort<double>("timeout", 8.0, "扫描超时时间(s)"));
     ports.insert(InputPort<double>("center_gate_x_ratio", 0.22, "水平居中窗口占图像宽度比例"));
@@ -36,6 +37,19 @@ NodeStatus ScanForTarget::onStart() {
     phase_duration_ = getInput<double>("phase_duration").value();
     lateral_velocity_ = getInput<double>("lateral_velocity").value();
     backward_velocity_ = getInput<double>("backward_velocity").value();
+
+    hold_staging_position_ = false;
+    const auto staging = getInput<Position3D>("staging_position");
+    if (staging) {
+        staging_position_.x = staging.value().x;
+        staging_position_.y = staging.value().y;
+        staging_position_.z = staging.value().z;
+        if (!std::isfinite(staging_position_.x) || !std::isfinite(staging_position_.y) ||
+            !std::isfinite(staging_position_.z)) {
+            return NodeStatus::FAILURE;
+        }
+        hold_staging_position_ = true;
+    }
 
     stable_frames_ = 0;
     has_stable_detection_ = false;
@@ -97,8 +111,17 @@ NodeStatus ScanForTarget::onRunning() {
         publishDebugEvent("scan_timeout", std::string("target=") + target_class + " not acquired");
         return NodeStatus::FAILURE;
     }
-
     return TargetDetectorBase::onRunning();
+}
+
+void ScanForTarget::publishSearchCommand(double vx, double vy, double yaw_rate) {
+    if (hold_staging_position_) {
+        const double vz = std::clamp(
+            1.5 * (staging_position_.z - fcu_odom_ptr->pose.pose.position.z), -0.15, 0.15);
+        publishXYHoldWithYawRate(staging_position_, vz, yaw_rate);
+    } else {
+        publishVelocityWithYawRate(vx, vy, 0.0, yaw_rate);
+    }
 }
 
 NodeStatus ScanForTarget::handleDetectedObject(const common_msgs::Obj& obj) {
@@ -121,7 +144,7 @@ NodeStatus ScanForTarget::handleDetectedObject(const common_msgs::Obj& obj) {
     if (!centered) {
         steer = (std::abs(err_x) > 8.0) ? -std::copysign(yaw_rate_, err_x) : 0.0;
     }
-    publishVelocityWithYawRate(0.0, 0.0, 0.0, steer);
+    publishSearchCommand(0.0, 0.0, steer);
 
     if (stable_frames_ >= stable_frames_required_) {
         if (!has_stable_detection_) {
@@ -132,7 +155,7 @@ NodeStatus ScanForTarget::handleDetectedObject(const common_msgs::Obj& obj) {
         // 一旦目标已经进入可跟踪的中心窗口，就立刻交棒给后续节点。
         // 否则在检测抖动时容易错过短暂但有效的观测机会。
         if (centered) {
-            sendHoverCommand();
+            if (!hold_staging_position_) sendHoverCommand();
             ROS_INFO("[%s]: Target %s centered, handing off to tracker immediately.",
                      name().c_str(), target_class.c_str());
             publishDebugEvent("scan_success", std::string("target=") + target_class + " centered_immediate");
@@ -141,7 +164,7 @@ NodeStatus ScanForTarget::handleDetectedObject(const common_msgs::Obj& obj) {
 
         double held = (ros::Time::now() - first_stable_time_).toSec();
         if (held >= detection_hold_time_) {
-            sendHoverCommand();
+            if (!hold_staging_position_) sendHoverCommand();
             ROS_INFO("[%s]: Target %s detected%s, handing off to tracker.",
                      name().c_str(), target_class.c_str(), centered ? " and centered" : "");
             publishDebugEvent("scan_success", std::string("target=") + target_class + (centered ? " centered" : " detected"));
@@ -188,7 +211,7 @@ NodeStatus ScanForTarget::handleNoDetection() {
             break;
     }
 
-    publishVelocityWithYawRate(vx, vy, 0.0, yaw);
+    publishSearchCommand(vx, vy, yaw);
     ROS_WARN_THROTTLE(1.0, "[%s]: No %s detected, search phase=%s.", name().c_str(), target_class.c_str(), phaseName());
     publishDebugEvent("scan_search", std::string("phase=") + phaseName());
     return NodeStatus::RUNNING;

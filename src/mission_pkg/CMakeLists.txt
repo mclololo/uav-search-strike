@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.0.2)
 project(mission_pkg)
 
 add_compile_options(-std=c++17 -g -rdynamic)
@@ -36,13 +36,13 @@ add_library(mavros_cnt SHARED src/mavros_cnt.cpp)
 target_link_libraries(mavros_cnt PRIVATE ${catkin_LIBRARIES})
 
 # 基类库
-add_library(drone_base SHARED 
+add_library(drone_base SHARED
     src/base/drone_action_node.cpp
     src/utils/pose_utils.cpp
 )
 target_link_libraries(drone_base PRIVATE mavros_cnt behaviortree_cpp ${catkin_LIBRARIES})
 
-add_library(target_det_base SHARED 
+add_library(target_det_base SHARED
     src/base/target_detector_base.cpp
 )
 target_link_libraries(target_det_base PRIVATE mavros_cnt drone_base behaviortree_cpp ${catkin_LIBRARIES})
@@ -51,11 +51,11 @@ list(APPEND plugin_libs mavros_cnt drone_base target_det_base)
 
 # 扫描所有节点子目录下的 cpp 进行插件化构建
 set(LIBSOURCE src/nodes)
-file(GLOB_RECURSE SOURCE_FILES 
-    "${LIBSOURCE}/action/*.cpp" 
+file(GLOB_RECURSE SOURCE_FILES
+    "${LIBSOURCE}/action/*.cpp"
     "${LIBSOURCE}/perception/*.cpp"
-    "${LIBSOURCE}/condition/*.cpp" 
-    "${LIBSOURCE}/control/*.cpp" 
+    "${LIBSOURCE}/condition/*.cpp"
+    "${LIBSOURCE}/control/*.cpp"
     "${LIBSOURCE}/decorator/*.cpp"
 )
 
@@ -90,3 +90,6 @@ target_link_libraries(aruco_detect_node
     ${OpenCV_LIBRARIES}
 )
 
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(strike_motion_test test/strike_motion_test.cpp)
+endif()

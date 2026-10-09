@@ -10,6 +10,7 @@
 #include "mavros_cnt.h"
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <algorithm>
 
 
 
@@ -108,6 +109,14 @@ geometry_msgs::Point MavRosConnect::getHomePosition() const
   return home_position_;
 }
 
+double MavRosConnect::getMeasuredSpeed() const
+{
+  std::lock_guard<std::mutex> lock(pose_mtx);
+  const auto& v = fcu_odom.twist.twist.linear;
+  const double reported = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  return std::max(pose_speed_.speed(ros::Time::now().toSec()), reported);
+}
+
 
 const mavros_msgs::State *MavRosConnect::getFcuState()
 {
@@ -169,6 +178,8 @@ void MavRosConnect::FcuOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
              home_position_.x, home_position_.y, home_position_.z);
   }
   fcu_odom = *msg;
+  const auto& p = msg->pose.pose.position;
+  pose_speed_.update(msg->header.stamp.toSec(), p.x, p.y, p.z);
 }
 
 void MavRosConnect::updateCommand(const mavros_msgs::PositionTarget &cmd)

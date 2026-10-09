@@ -1,0 +1,4 @@
+/tools/fm9g_grounding/deployment/**/*.safetensors filter=lfs diff=lfs merge=lfs -text
+*.sh text eol=lf
+*.py text eol=lf
+*.md text eol=lf

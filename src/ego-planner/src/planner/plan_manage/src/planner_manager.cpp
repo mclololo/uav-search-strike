@@ -72,7 +72,9 @@ namespace ego_planner
       start_end_derivatives.clear();
       flag_regenerate = false;
 
-      if (flag_first_call || flag_polyInit || flag_force_polynomial /*|| ( start_pt - local_target_pt ).norm() < 1.0*/) // Initial path generated from a min-snap traj by order.
+      if (flag_first_call || flag_polyInit || flag_force_polynomial ||
+          local_data_.start_time_.isZero() ||
+          (ros::Time::now() - local_data_.start_time_).toSec() >= local_data_.duration_ - 1e-3) // Initial path generated from a min-snap traj by order.
       {
         flag_first_call = false;
         flag_force_polynomial = false;
@@ -147,6 +149,13 @@ namespace ego_planner
           }
         }
         t -= ts;
+
+        if (segment_point.size() < 2 || pseudo_arc_length.back() <= 1e-6)
+        {
+          flag_force_polynomial = true;
+          flag_regenerate = true;
+          continue;
+        }
 
         double poly_time = (local_data_.position_traj_.evaluateDeBoorT(t) - local_target_pt).norm() / pp_.max_vel_ * 2;
         if (poly_time > ts)

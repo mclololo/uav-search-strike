@@ -18,9 +18,22 @@ src/object_det/models/
 .DS_Store
 
 # 个人说明文档与素材，不参与版本控制
+.claude/
+.vscode/
 assets/
-docs/
+docs/*
+!docs/README.md
+!docs/GPUFree文件同步说明.md
+!docs/云服务器代码结构.md
+!docs/新实例恢复与九格采集训练_20261008.md
+!docs/云端图片采集与本地标注操作手册.md
+!docs/标注上传后的九格训练步骤.md
+!docs/九格训练结果与图片下载到本地.md
+!docs/九格全程感知替代YOLO任务清单.md
+!docs/2026无人系统具身智能算法挑战赛--无人机搜索打击场景使用手册.md
+!docs/九格云端文件核对_20261009.md
+!docs/组员克隆与云端运行.md
 tmp/
-2026无人系统具身智能算法挑战赛--无人机搜索打击场景使用手册.md
+/2026无人系统具身智能算法挑战赛--无人机搜索打击场景使用手册.md
 感知与大模型模块优化指导.md
 比赛规则.md

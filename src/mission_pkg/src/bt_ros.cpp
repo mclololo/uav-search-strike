@@ -207,7 +207,8 @@ bool generateNodeModelXML(const BehaviorTreeFactory& factory, const std::string&
  *   hit_balloon:区域:颜色       (例: hit_balloon:A:red)
  *   land
  */
-std::string commandToXmlNode(const std::string& command) {
+std::string commandToXmlNode(const std::string& command,
+                             bool returned_through_frame) {
     // 去除前后空白
     std::string cmd = command;
     cmd.erase(0, cmd.find_first_not_of(" \t\r\n"));
@@ -253,8 +254,11 @@ std::string commandToXmlNode(const std::string& command) {
         std::string occ_dir   = getStr("cross_frame/occlusion_direction", "right");
         std::string exp_pos   = getStr("cross_frame/expected_pos",  "0.4;3.25;1.0");
         std::string z_tol     = std::to_string(getDbl("cross_frame/z_tolerance", 0.5));
+        std::string xy_tol    = std::to_string(getDbl("cross_frame/xy_tolerance", 0.45));
+        std::string center_tol = std::to_string(getDbl("cross_frame/center_tolerance", 0.12));
         std::string filter_w  = std::to_string((int)getDbl("cross_frame/filter_window_size", 20));
-        std::string offset_z  = std::to_string(getDbl("cross_frame/offset_z", 1.0));
+        std::string exit_x    = std::to_string(getDbl("cross_frame/offset_z", 1.0));
+        std::string entry_x   = std::to_string(-getDbl("cross_frame/entry_distance", 0.65));
         
         return 
             "      <!-- 移动到观察位置 -->\n"
@@ -265,11 +269,14 @@ std::string commandToXmlNode(const std::string& command) {
             "      <!-- 识别方框位置 -->\n"
             "      <TargetLocator object_name=\"square_frame\" object_width=\"" + obj_w + "\" object_height=\"" + obj_h + "\" "
             "occlusion_direction=\"" + occ_dir + "\" expected_pos=\"" + exp_pos + "\" "
-            "xy_tolerance=\"1.0\" z_tolerance=\"" + z_tol + "\" "
+            "xy_tolerance=\"" + xy_tol + "\" z_tolerance=\"" + z_tol + "\" "
+            "timeout=\"8.0\" "
             "confidence_threshold=\"0.7\" "
             "position_3d=\"{frame_center}\" filter_window_size=\"" + filter_w + "\"/>\n"
             "      <!-- 规划穿过方框 -->\n"
-            "      <PlanningControl goal=\"{frame_center}\" offset_z=\"" + offset_z + "\" final_position=\"{planning_end_pos}\"/>\n";
+            "      <PlanningControl goal=\"{frame_center}\" offset_x=\"" + entry_x + "\" tolerance=\"" + center_tol + "\"/>\n"
+            "      <PlanningControl goal=\"{frame_center}\" tolerance=\"" + center_tol + "\"/>\n"
+            "      <PlanningControl goal=\"{frame_center}\" offset_x=\"" + exit_x + "\" final_position=\"{planning_end_pos}\"/>\n";
     }
     
     // ---- detect_aruco: 飞到二维码上方识别 ----
@@ -288,6 +295,7 @@ std::string commandToXmlNode(const std::string& command) {
         std::string turn_pos     = getStr("return_cross_frame/turn_pos",   "-1.0;4.0;1.8");
         double      turn_yaw     = getDbl("return_cross_frame/turn_yaw",   3.14159);
         double      offset_z     = getDbl("return_cross_frame/offset_z",   1.0);
+        double      center_tol   = getDbl("cross_frame/center_tolerance", 0.12);
         double      exit_yaw     = getDbl("return_cross_frame/exit_yaw",   0.0);
         return
             "      <!-- 路径规划到转向点 -->\n"
@@ -297,7 +305,8 @@ std::string commandToXmlNode(const std::string& command) {
             "      <!-- 规划返回穿框入口，避免直线撞柱 -->\n"
             "      <PlanningControl goal=\"{planning_end_pos}\"/>\n"
             "      <!-- 反向穿越方框，穿框后直接交给打击点路径规划 -->\n"
-            "      <PlanningControl goal=\"{frame_center}\" offset_z=\"" + std::to_string(offset_z) + "\"/>\n"
+            "      <PlanningControl goal=\"{frame_center}\" tolerance=\"" + std::to_string(center_tol) + "\"/>\n"
+            "      <PlanningControl goal=\"{frame_center}\" offset_x=\"" + std::to_string(-offset_z) + "\"/>\n"
             "      <!-- 原地转回机头朝向气球区域，不额外做固定点前进 -->\n"
             "      <GoTo yaw=\"" + std::to_string(exit_yaw) + "\"/>\n";
     }
@@ -353,7 +362,7 @@ std::string commandToXmlNode(const std::string& command) {
             getDbl("visual_servo/max_hit_offset_ratio", 0.35));
         
         double scan_yaw_rate = getDbl("balloon_scan/yaw_rate", 0.35);
-        double scan_timeout = getDbl("balloon_scan/timeout", 45.0);
+        double scan_timeout = getDbl("balloon_scan/timeout", 20.0);
         double scan_center_gate_x = getDbl("balloon_scan/center_gate_x_ratio", 0.22);
         double scan_center_gate_y = getDbl("balloon_scan/center_gate_y_ratio", 0.35);
         int scan_stable_frames = (int)getDbl("balloon_scan/stable_frames", 3);
@@ -375,6 +384,10 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_lift_t = std::to_string(getDbl("visual_servo/post_hit_lift_time", 0.45));
         std::string vs_lift_timeout = std::to_string(getDbl("visual_servo/post_hit_lift_timeout", 1.0));
         std::string vs_lift_tol = std::to_string(getDbl("visual_servo/post_hit_lift_tolerance", 0.12));
+        std::string vs_backoff_d = std::to_string(getDbl(
+            param_prefix + "/post_hit_backoff_distance",
+            getDbl("visual_servo/post_hit_backoff_distance", 0.0)));
+        std::string vs_backoff_t = std::to_string(getDbl("visual_servo/post_hit_backoff_time", 1.20));
         std::string vs_settle_t = std::to_string(getDbl("visual_servo/post_hit_settle_time", 0.45));
         std::string vs_success_area = std::to_string(getDbl("visual_servo/post_hit_success_area_ratio", 0.025));
         std::string vs_data_timeout = std::to_string(getDbl("visual_servo/data_timeout", 1.0));
@@ -392,7 +405,7 @@ std::string commandToXmlNode(const std::string& command) {
         std::string vs_recovery_yaw = std::to_string(getDbl("visual_servo/recovery_yaw_rate", 0.5));
         std::string vs_recovery_timeout = std::to_string(getDbl("visual_servo/recovery_total_timeout", 3.0));
         std::string vs_startup_grace = std::to_string(getDbl("visual_servo/startup_grace_time", 1.0));
-        std::string vs_stable_time = std::to_string(getDbl("visual_servo/strike_stable_time", 0.15));
+        std::string vs_stable_time = std::to_string(getDbl("visual_servo/strike_stable_time", 0.8));
         std::string vs_alignment_tolerance = std::to_string(
             getDbl("visual_servo/sprint_alignment_tolerance_px", 24.0));
         std::string vs_vertical_alignment_tolerance = std::to_string(
@@ -480,7 +493,13 @@ std::string commandToXmlNode(const std::string& command) {
                  color.c_str(), zone.c_str(), approach_pos.c_str(), goto_pos.c_str(),
                  yaw.c_str(), balloon_name.c_str());
 
+        // Blue-zone transfer crosses the frame plane again. Reuse the exit reached
+        // during this mission's first crossing so EGO does not cut across its rim.
+        const std::string frame_transfer = returned_through_frame && color == "blue"
+            ? "      <PlanningControl goal=\"{planning_end_pos}\"/>\n" : "";
+
         return
+            frame_transfer +
             "      <!-- 规划飞到气球打击区域" + zone + " -->\n"
             "      <PlanningControl goal=\"" + approach_pos + "\"/>\n"
             "      <!-- 规划到0.70m搜索点；目标出现前不预降到打击高度 -->\n"
@@ -495,6 +514,7 @@ std::string commandToXmlNode(const std::string& command) {
             "        <Sequence name=\"AcquireAndHit\">\n"
             "          <!-- 主动旋转扫描，先把目标拉进视野 -->\n"
             "          <ScanForTarget object_name=\"" + balloon_name + "\" confidence_threshold=\"" + balloon_conf + "\" "
+            "staging_position=\"" + goto_pos + "\" "
             "yaw_rate=\"" + std::to_string(scan_yaw_rate) + "\" timeout=\"" + std::to_string(scan_timeout) + "\" "
             "center_gate_x_ratio=\"" + std::to_string(scan_center_gate_x) + "\" center_gate_y_ratio=\"" + std::to_string(scan_center_gate_y) + "\" "
             "stable_frames=\"" + std::to_string(scan_stable_frames) + "\" detection_hold_time=\"" + std::to_string(scan_hold_time) + "\" "
@@ -505,6 +525,7 @@ std::string commandToXmlNode(const std::string& command) {
             "                <TargetTracker object_name=\"" + balloon_name + "\" confidence_threshold=\"" + balloon_conf + "\" pixel_target=\"{balloon_pixel}\" "
             "lost_target_grace_time=\"" + tracker_grace_time + "\"/>\n"
             "                <VisualServo pixel_target=\"{balloon_pixel}\" "
+            "staging_position=\"" + goto_pos + "\" "
             "k_p_yaw_rate=\"" + vs_k_p_yaw + "\" k_d_yaw_rate=\"" + vs_k_d_yaw + "\" "
             "k_p_vz=\"" + vs_k_p_vz + "\" k_d_vz=\"" + vs_k_d_vz + "\" "
             "approach_area_threshold=\"" + vs_area_th + "\" "
@@ -518,6 +539,7 @@ std::string commandToXmlNode(const std::string& command) {
             "post_hit_brake_velocity=\"" + vs_brake_v + "\" post_hit_brake_time=\"" + vs_brake_t + "\" "
             "post_hit_lift_height=\"" + vs_lift_h + "\" post_hit_lift_time=\"" + vs_lift_t + "\" "
             "post_hit_lift_timeout=\"" + vs_lift_timeout + "\" post_hit_lift_tolerance=\"" + vs_lift_tol + "\" "
+            "post_hit_backoff_distance=\"" + vs_backoff_d + "\" post_hit_backoff_time=\"" + vs_backoff_t + "\" "
             "post_hit_settle_time=\"" + vs_settle_t + "\" post_hit_success_area_ratio=\"" + vs_success_area + "\" "
             "post_hit_escape_yaw=\"" + vs_post_hit_escape_yaw + "\" "
             "post_hit_escape_velocity=\"" + vs_post_hit_escape_velocity + "\" "
@@ -567,17 +589,13 @@ std::string commandToXmlNode(const std::string& command) {
     // ---- land ----
     if (cmd == "land") {
         std::string return_high_pos = getStr("land/return_high_pos", "0.0;0.0;1.4");
-        std::string return_low_pos = getStr("land/return_low_pos", "0.0;0.0;0.5");
         double ret_yaw = getDbl("land/return_yaw", 0.0);
         double plan_yaw_rate = getDbl("land/planning_yaw_rate", 0.25);
         double final_yaw_rate = getDbl("land/final_yaw_rate", 0.25);
         return
             "      <!-- 规划返航到起点上方，避免撞球后低空直线返回 -->\n"
-            "      <PlanningControl goal=\"" + return_high_pos + "\" use_home_xy=\"true\" control_yaw=\"true\" yaw_rate=\"" + std::to_string(plan_yaw_rate) + "\"/>\n"
-            "      <!-- 到起飞区上方后先原地平滑转到降落航向 -->\n"
-            "      <GoTo yaw=\"" + std::to_string(ret_yaw) + "\" yaw_rate=\"" + std::to_string(final_yaw_rate) + "\"/>\n"
-            "      <!-- 继续用规划器在起飞区内下降，避免低空直线切障碍 -->\n"
-            "      <PlanningControl goal=\"" + return_low_pos + "\" use_home_xy=\"true\" control_yaw=\"true\" yaw_rate=\"" + std::to_string(plan_yaw_rate) + "\"/>\n"
+            "      <PlanningControl goal=\"" + return_high_pos + "\" use_home_xy=\"true\" control_yaw=\"true\" yaw_rate=\"" + std::to_string(plan_yaw_rate) + "\" final_yaw=\"" + std::to_string(ret_yaw) + "\" final_yaw_rate=\"" + std::to_string(final_yaw_rate) + "\"/>\n"
+            "      <!-- 规划到位并转正后直接自动降落 -->\n"
             "      <Land/>\n";
     }
 
@@ -594,10 +612,22 @@ std::string buildXmlFromCommands(const std::vector<std::string>& commands) {
   <BehaviorTree ID="LLMTask">
     <Sequence name="LLMSequence">
 )";
+    bool frame_position_available = false;
+    bool returned_through_frame = false;
     for (const auto& cmd : commands) {
-        std::string node_xml = commandToXmlNode(cmd);
+        std::string trimmed = cmd;
+        trimmed.erase(0, trimmed.find_first_not_of(" \t\r\n"));
+        trimmed.erase(trimmed.find_last_not_of(" \t\r\n") + 1);
+        if (trimmed == "cross_frame") frame_position_available = true;
+        if (trimmed == "return_cross_frame" && frame_position_available) {
+            returned_through_frame = true;
+        }
+        std::string node_xml = commandToXmlNode(cmd, returned_through_frame);
         if (!node_xml.empty()) {
             xml += node_xml;
+        }
+        if (trimmed.rfind("hit_balloon", 0) == 0) {
+            returned_through_frame = false;
         }
     }
     xml += R"(    </Sequence>

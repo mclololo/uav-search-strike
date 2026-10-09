@@ -50,10 +50,13 @@
     <param name="cross_frame/object_width"        value="1.3"          type="double"/> <!-- 方框物理宽度(m) -->
     <param name="cross_frame/object_height"       value="1.3"          type="double"/> <!-- 方框物理高度(m) -->
     <param name="cross_frame/occlusion_direction" value="right"         type="str"/>    <!-- 遮挡方向 -->
-    <param name="cross_frame/expected_pos"        value="3.25;-0.4;1.0" type="str"/>    <!-- 方框预期位置 -->
+    <param name="cross_frame/expected_pos"        value="3.25;-1.2;1.0" type="str"/>    <!-- 本地起飞原点下的方框粗略位置，仅用于识别结果筛选 -->
     <param name="cross_frame/z_tolerance"         value="0.5"           type="double"/> <!-- z方向容差 -->
+    <param name="cross_frame/xy_tolerance"        value="0.45"          type="double"/> <!-- 与场景先验不符时拒绝盲穿 -->
+    <param name="cross_frame/center_tolerance"    value="0.12"          type="double"/> <!-- 穿越中心到位容差 -->
+    <param name="cross_frame/entry_distance"      value="0.65"          type="double"/> <!-- 框前入口距离，中心仍来自实时识别 -->
     <param name="cross_frame/filter_window_size"  value="20"            type="double"/> <!-- 滤波窗口 -->
-    <param name="cross_frame/offset_z"            value="1.0"           type="double"/> <!-- 规划z偏移 -->
+    <param name="cross_frame/offset_z"            value="1.0"           type="double"/> <!-- 沿框法线的出口距离（历史参数名） -->
 
     <!-- ArUco 检测 -->
     <param name="aruco/hover_pos" value="4.5;0.5;1.2" type="str"/>     <!-- 二维码上方悬停位置 -->
@@ -66,10 +69,9 @@
 
     <!-- 降落 / 返航 -->
     <param name="land/return_high_pos" value="0.0;0.0;1.4" type="str"/> <!-- 规划返航到起点上方 -->
-    <param name="land/return_low_pos"  value="0.0;0.0;0.5" type="str"/> <!-- 降落前低位点 -->
     <param name="land/return_yaw" value="0.0" type="double"/>         <!-- 降落前航向(rad) -->
     <param name="land/planning_yaw_rate" value="0.25" type="double"/> <!-- 返航规划时机头转向速度(rad/s) -->
-    <param name="land/final_yaw_rate" value="0.25" type="double"/>    <!-- 降落前原地转向速度(rad/s) -->
+    <param name="land/final_yaw_rate" value="0.25" type="double"/>    <!-- 返航末段转正速度(rad/s) -->
 
     <!-- ============================================ -->
     <!-- 气球颜色→区域映射（比赛前根据实际配置修改）    -->
@@ -104,7 +106,7 @@
     <param name="balloon_zone_B/goal"         value="5.3;-2.60;0.70" type="str"/>
     <param name="balloon_zone_B/search_pos"   value="5.3;-2.60;0.70" type="str"/>
     <param name="balloon_zone_B/yaw"          value="3.14159"       type="double"/>
-    <param name="balloon_zone_B/hit_offset_x" value="-10.0" type="double"/>
+    <param name="balloon_zone_B/hit_offset_x" value="-20.0" type="double"/>
     <param name="balloon_zone_B/corridor_reference_length" value="5.20" type="double"/>
     <param name="balloon_zone_B/sprint_limit_ratio" value="0.78" type="double"/>
     <param name="balloon_zone_B/target_zone_far_ratio" value="0.78" type="double"/>
@@ -112,13 +114,15 @@
     <param name="balloon_zone_B/emergency_clearance" value="0.0" type="double"/>
     <param name="balloon_zone_B/boundary_margin" value="0.20" type="double"/>
     <param name="balloon_zone_B/post_hit_escape_yaw" value="1.5708" type="double"/>
-    <param name="balloon_zone_B/post_hit_escape_distance" value="0.25" type="double"/>
-    <param name="balloon_zone_B/post_hit_escape_time" value="1.50" type="double"/>
+    <param name="balloon_zone_B/post_hit_escape_velocity" value="0.0" type="double"/>
+    <param name="balloon_zone_B/post_hit_escape_distance" value="0.0" type="double"/>
+    <param name="balloon_zone_B/post_hit_escape_time" value="0.0" type="double"/>
+    <param name="balloon_zone_B/post_hit_backoff_distance" value="0.10" type="double"/>
     <!-- C区 (蓝色气球) -->
     <param name="balloon_zone_C/approach_pos" value="5.4;1.0;1.0"  type="str"/>
     <param name="balloon_zone_C/goal"         value="5.4;1.0;0.70" type="str"/>
     <param name="balloon_zone_C/yaw"          value="-1.5708"       type="double"/>
-    <param name="balloon_zone_C/hit_offset_x" value="-45.0" type="double"/>
+    <param name="balloon_zone_C/hit_offset_x" value="-60.0" type="double"/>
     <param name="balloon_zone_C/corridor_reference_length" value="5.00" type="double"/>
     <param name="balloon_zone_C/sprint_limit_ratio" value="0.76" type="double"/>
     <param name="balloon_zone_C/target_zone_far_ratio" value="0.76" type="double"/>
@@ -150,6 +154,7 @@
     <param name="visual_servo/post_hit_lift_time"       value="0.45"  type="double"/>
     <param name="visual_servo/post_hit_lift_timeout"    value="1.0"   type="double"/>
     <param name="visual_servo/post_hit_lift_tolerance"  value="0.12"  type="double"/>
+    <param name="visual_servo/post_hit_backoff_time"     value="1.20" type="double"/>
     <param name="visual_servo/post_hit_settle_time"     value="0.45"  type="double"/>
     <param name="visual_servo/post_hit_escape_velocity" value="0.18" type="double"/>
     <param name="visual_servo/post_hit_escape_distance" value="0.10" type="double"/>
@@ -157,7 +162,7 @@
     <param name="visual_servo/post_hit_escape_yaw_rate" value="0.12" type="double"/>
     <param name="visual_servo/data_timeout"              value="0.50"   type="double"/>
     <param name="visual_servo/startup_grace_time"        value="1.0"    type="double"/>
-    <param name="visual_servo/strike_stable_time"        value="0.15"   type="double"/>
+    <param name="visual_servo/strike_stable_time"        value="0.8"    type="double"/>
     <param name="visual_servo/sprint_alignment_tolerance_px" value="24.0" type="double"/>
     <param name="visual_servo/sprint_vertical_alignment_tolerance_px" value="180.0" type="double"/>
     <param name="visual_servo/sprint_alignment_stable_frames" value="2" type="int"/>
@@ -219,7 +224,7 @@
     <!-- 打击前主动扫描参数                            -->
     <!-- ============================================ -->
     <param name="balloon_scan/yaw_rate"             value="0.35" type="double"/>
-    <param name="balloon_scan/timeout"              value="45.0" type="double"/>
+    <param name="balloon_scan/timeout"              value="20.0" type="double"/>
     <param name="balloon_scan/center_gate_x_ratio"  value="0.35" type="double"/>
     <param name="balloon_scan/center_gate_y_ratio"  value="0.45" type="double"/>
     <param name="balloon_scan/stable_frames"        value="1"    type="int"/>

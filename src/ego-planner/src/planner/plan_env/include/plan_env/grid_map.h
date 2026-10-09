@@ -5,12 +5,15 @@
 #include <Eigen/StdVector>
 #include <cv_bridge/cv_bridge.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/PointStamped.h>
 #include <iostream>
 #include <random>
 #include <nav_msgs/Odometry.h>
 #include <queue>
 #include <ros/ros.h>
 #include <tuple>
+#include <unordered_map>
+#include <std_msgs/Time.h>
 #include <visualization_msgs/Marker.h>
 
 #include <pcl/point_cloud.h>
@@ -191,6 +194,7 @@ private:
   void depthOdomCallback(const sensor_msgs::ImageConstPtr& img, const nav_msgs::OdometryConstPtr& odom);
   void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& img);
   void odomCallback(const nav_msgs::OdometryConstPtr& odom);
+  void returnClearanceCallback(const geometry_msgs::PointStampedConstPtr& msg);
 
   // update occupancy by raycasting
   void updateOccupancyCallback(const ros::TimerEvent& /*event*/);
@@ -224,6 +228,18 @@ private:
   SynchronizerImageOdom sync_image_odom_;
 
   ros::Subscriber indep_cloud_sub_, indep_odom_sub_;
+  ros::Subscriber return_clearance_sub_;
+  ros::Publisher return_map_stamp_pub_;
+  bool return_clearance_active_{false};
+  ros::Time return_clearance_time_;
+  double return_min_altitude_{0.0};
+  double return_inflation_{0.40};
+  double return_memory_time_{12.0};
+  struct ReturnVoxel {
+    pcl::PointXYZ point;
+    ros::Time stamp;
+  };
+  std::unordered_map<int, ReturnVoxel> return_obstacles_;
   ros::Publisher map_pub_, map_inf_pub_;
   ros::Publisher unknown_pub_;
   ros::Timer occ_timer_, vis_timer_;
@@ -318,6 +334,7 @@ inline int GridMap::getOccupancy(Eigen::Vector3d pos) {
 
 inline int GridMap::getInflateOccupancy(Eigen::Vector3d pos) {
   if (!isInMap(pos)) return -1;
+  if (return_clearance_active_ && pos(2) < return_min_altitude_) return 1;
 
   Eigen::Vector3i id;
   posToIndex(pos, id);

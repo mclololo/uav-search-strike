@@ -52,6 +52,7 @@ PortsList TargetLocator::providedPorts() {
     ports.insert(InputPort<double>("xy_tolerance", 1.0, "xy平面位置容差(米)"));
     ports.insert(InputPort<double>("z_tolerance", 1.0, "z轴位置容差(米)"));
     ports.insert(InputPort<int>("filter_window_size", 10, "平滑窗口大小"));
+    ports.insert(InputPort<double>("timeout", 0.0, "定位超时秒数，0表示不限制"));
     ports.insert(OutputPort<Position3D>("position_3d", "3D世界坐标(x;y;z)"));
     return ports;
 }
@@ -86,6 +87,8 @@ NodeStatus TargetLocator::onStart() {
 
     auto window_res = getInput<int>("filter_window_size");
     filter_window_size = window_res.value();
+    timeout_seconds_ = getInput<double>("timeout").value();
+    start_time_ = ros::Time::now();
 
     position_history.clear();
     
@@ -93,6 +96,15 @@ NodeStatus TargetLocator::onStart() {
              name().c_str(), physical_width, physical_height, expected_aspect_ratio, filter_window_size);
 
     return base_status;
+}
+
+NodeStatus TargetLocator::onRunning() {
+    if (timeout_seconds_ > 0.0 &&
+        (ros::Time::now() - start_time_).toSec() >= timeout_seconds_) {
+        ROS_ERROR("[%s]: No reliable target center within %.1f s", name().c_str(), timeout_seconds_);
+        return NodeStatus::FAILURE;
+    }
+    return TargetDetectorBase::onRunning();
 }
 
 NodeStatus TargetLocator::handleDetectedObject(const common_msgs::Obj& obj) {

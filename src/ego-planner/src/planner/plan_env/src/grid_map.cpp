@@ -17,6 +17,8 @@ void GridMap::initMap(ros::NodeHandle &nh)
   node_.param("grid_map/local_update_range_y", mp_.local_update_range_(1), -1.0);
   node_.param("grid_map/local_update_range_z", mp_.local_update_range_(2), -1.0);
   node_.param("grid_map/obstacles_inflation", mp_.obstacles_inflation_, -1.0);
+  node_.param("grid_map/return_obstacles_inflation", return_inflation_, 0.40);
+  node_.param("grid_map/return_obstacle_memory", return_memory_time_, 12.0);
 
   node_.param("grid_map/fx", mp_.fx_, -1.0);
   node_.param("grid_map/fy", mp_.fy_, -1.0);
@@ -123,6 +125,9 @@ void GridMap::initMap(ros::NodeHandle &nh)
       node_.subscribe<sensor_msgs::PointCloud2>("/grid_map/cloud", 10, &GridMap::cloudCallback, this);
   indep_odom_sub_ =
       node_.subscribe<nav_msgs::Odometry>("/grid_map/odom", 10, &GridMap::odomCallback, this);
+  return_clearance_sub_ = node_.subscribe<geometry_msgs::PointStamped>(
+      "/planning/return_clearance", 1, &GridMap::returnClearanceCallback, this);
+  return_map_stamp_pub_ = node_.advertise<std_msgs::Time>("/planning/return_map_stamp", 1);
 
   occ_timer_ = node_.createTimer(ros::Duration(0.05), &GridMap::updateOccupancyCallback, this);
   vis_timer_ = node_.createTimer(ros::Duration(0.05), &GridMap::visCallback, this);
@@ -730,6 +735,15 @@ void GridMap::odomCallback(const nav_msgs::OdometryConstPtr &odom)
   md_.has_odom_ = true;
 }
 
+void GridMap::returnClearanceCallback(const geometry_msgs::PointStampedConstPtr &msg)
+{
+  const bool active = msg->header.frame_id == "world" && std::isfinite(msg->point.z);
+  if (!active || !return_clearance_active_) return_obstacles_.clear();
+  return_clearance_active_ = active;
+  return_clearance_time_ = ros::Time::now();
+  return_min_altitude_ = msg->point.z;
+}
+
 void GridMap::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &img)
 {
 
@@ -750,14 +764,60 @@ void GridMap::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &img)
   if (isnan(md_.camera_pos_(0)) || isnan(md_.camera_pos_(1)) || isnan(md_.camera_pos_(2)))
     return;
 
+  const ros::Time now = ros::Time::now();
+  if (return_clearance_active_ &&
+      (now < return_clearance_time_ || (now - return_clearance_time_).toSec() > 1.0))
+  {
+    return_clearance_active_ = false;
+    return_obstacles_.clear();
+  }
+  if (return_clearance_active_)
+  {
+    if (img->header.frame_id != "world" || img->header.stamp.isZero() ||
+        img->header.stamp > now || (now - img->header.stamp).toSec() > 0.8)
+      return;
+
+    // The front camera turning away is not evidence that a pillar disappeared.
+    // Retain observed voxels only during return. Low moving objects expire quickly.
+    for (auto it = return_obstacles_.begin(); it != return_obstacles_.end();)
+    {
+      const double lifetime = it->second.point.z < mp_.ground_height_ + 0.75
+          ? 0.75 : std::max(0.75, return_memory_time_);
+      if (now < it->second.stamp || (now - it->second.stamp).toSec() > lifetime)
+        it = return_obstacles_.erase(it);
+      else
+        ++it;
+    }
+    for (const auto &point : latest_cloud.points)
+    {
+      const Eigen::Vector3d p(point.x, point.y, point.z);
+      if (!p.allFinite() || !isInMap(p) ||
+          (p - md_.camera_pos_).cwiseAbs().maxCoeff() > 12.0) continue;
+      Eigen::Vector3i index;
+      posToIndex(p, index);
+      // A 0.10 m voxel avoids reinflating every pixel of the same surface.
+      const int stride = std::max(1, static_cast<int>(std::ceil(0.10 / mp_.resolution_)));
+      index = (index / stride) * stride;
+      return_obstacles_[toAddress(index)] = {point, img->header.stamp};
+    }
+    latest_cloud.points.clear();
+    latest_cloud.points.reserve(return_obstacles_.size());
+    for (const auto &entry : return_obstacles_)
+      latest_cloud.points.push_back(entry.second.point);
+  }
+
   this->resetBuffer(md_.camera_pos_ - mp_.local_update_range_,
                     md_.camera_pos_ + mp_.local_update_range_);
 
   pcl::PointXYZ pt;
   Eigen::Vector3d p3d, p3d_inf;
 
-  int inf_step = ceil(mp_.obstacles_inflation_ / mp_.resolution_);
-  int inf_step_z = 1;
+  const int base_inf_step = ceil(mp_.obstacles_inflation_ / mp_.resolution_);
+  const int return_inf_step = ceil((return_clearance_active_
+      ? std::max(mp_.obstacles_inflation_, return_inflation_)
+      : mp_.obstacles_inflation_) / mp_.resolution_);
+  int inf_step_z = return_clearance_active_
+      ? std::max(1, static_cast<int>(std::ceil(0.15 / mp_.resolution_))) : 1;
 
   double max_x, max_y, max_z, min_x, min_y, min_z;
 
@@ -781,6 +841,17 @@ void GridMap::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &img)
     if (fabs(devi(0)) < mp_.local_update_range_(0) && fabs(devi(1)) < mp_.local_update_range_(1) &&
         fabs(devi(2)) < mp_.local_update_range_(2))
     {
+      int inf_step = return_inf_step;
+      if (return_clearance_active_ &&
+          fabs(devi(2)) <= (inf_step_z + 1) * mp_.resolution_)
+      {
+        // Increase clearance away from the stopped aircraft, while preserving a
+        // free start cell near a wall. Never reduce the ordinary obstacle radius.
+        const double start_clearance = std::max(fabs(devi(0)), fabs(devi(1)));
+        const int start_step = static_cast<int>(std::floor(
+            (start_clearance - 2.0 * mp_.resolution_) / mp_.resolution_));
+        inf_step = std::max(base_inf_step, std::min(inf_step, start_step));
+      }
 
       /* inflate the point */
       for (int x = -inf_step; x <= inf_step; ++x)
@@ -827,6 +898,15 @@ void GridMap::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &img)
 
   boundIndex(md_.local_bound_min_);
   boundIndex(md_.local_bound_max_);
+
+  if (return_clearance_active_)
+  {
+    // Acknowledge only after the current observed-obstacle map is ready.
+    // The altitude floor is queried separately, so disabling return leaves no fake floor voxels.
+    std_msgs::Time ready;
+    ready.data = img->header.stamp;
+    return_map_stamp_pub_.publish(ready);
+  }
 }
 
 void GridMap::publishMap()

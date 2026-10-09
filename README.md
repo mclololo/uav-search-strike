@@ -6,6 +6,14 @@
 
 ---
 
+## 当前版本：九格检测头与成员部署
+
+`feature/perception` 分支提供九格语言任务解析、冻结九格视觉编码器 + FCOS 四类检测，以及采集、人工复核、训练和评估工具。九格在线检测不调用 YOLO 或逐 token 生成 bbox；二维码由独立 ArUco/QR 节点识别。已训练的约 29.6 MB 检测头通过 Git LFS 分发，克隆后须执行 `git lfs pull`。基础 `FM9G4B-V` 和 YOLO `best.pt` 使用赛事镜像预装文件，不包含在仓库中。
+
+其他成员请按 [组员克隆与云端运行](docs/组员克隆与云端运行.md) 完成克隆、打包、在全新云端工作区编译及运行；[GPUFree 文件同步说明](docs/GPUFree文件同步说明.md) 说明已有工作区的差异合并。打包工具保留 Linux 链接/执行权限，不覆盖原工作区、模型或服务器独有文件。采集与训练入口见 [文档索引](docs/README.md)。
+
+在已编译的新工作区选择 `PERCEPTION_BACKEND=fm9g ./sim_env_start.sh` 或 `PERCEPTION_BACKEND=yolo ./sim_env_start.sh`，默认仍为 YOLO。自然语言任务不会切换后端；九格模式的 `/objects` 唯一发布者应为 `/fm9g_spatial_detector`。组员须在各自实例进行飞行验收，构建和离线测试不代表实际命中。
+
 ## 1. 项目概览
 
 该项目的目标是：
@@ -54,6 +62,7 @@ catkin_ws/
    - 输出图像、IMU、odom、深度点云等数据
 
 2. **感知层**
+   - `tools/fm9g_grounding/ros_fcos_node.py`：九格视觉编码器 + FCOS 检测
    - `object_det`：YOLO 目标检测、HSV 气球颜色分类
    - `mission_pkg/src/aruco_detect_node.cpp` / `scripts/aruco_detect_node.py`：ArUco 识别
 
@@ -226,7 +235,7 @@ src/mission_pkg/
 
 ### 主要话题
 
-- 订阅：`/camera/color/image_raw`
+- 订阅：`/rflysim/sensor1/img_rgb`（默认配置）
 - 发布：`/objects`
 
 ---
@@ -335,7 +344,7 @@ src/mission_pkg/
 
 1. `roscore`
 2. 大模型进程 `mission_once.py`
-3. `object_det` 的 `detection_color.launch`
+3. 九格 `ros_fcos_node.py` 或 `object_det` 的 `detection_color.launch`，由 `PERCEPTION_BACKEND` 选择
 4. `sensor_pkg/main.py`
 5. `sensor_pkg/AgentContestMap.py`
 6. `sensor_pkg/cloud_transform.launch`

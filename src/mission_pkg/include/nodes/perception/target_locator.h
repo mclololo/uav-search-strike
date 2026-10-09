@@ -22,6 +22,7 @@ public:
     static PortsList providedPorts();
     
     NodeStatus onStart() override;
+    NodeStatus onRunning() override;
 
 protected:
     NodeStatus handleDetectedObject(const common_msgs::Obj& obj) override;
@@ -41,6 +42,8 @@ private:
     Position3D expected_pos;
     double xy_tolerance, z_tolerance;
     int filter_window_size;
+    double timeout_seconds_{0.0};
+    ros::Time start_time_;
     
     // 相机参数
     double fx, fy, cx, cy;

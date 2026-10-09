@@ -22,6 +22,8 @@ import re
 
 import gc
 
+import time
+
 import numpy as np
 
 from PIL import Image as PILImage
@@ -84,9 +86,9 @@ def load_model():
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
-    prompt_path = os.path.join(script_dir, "prompts", "mission_prompt.txt")
+    prompt_path = os.environ.get("MISSION_PROMPT_PATH", os.path.join(script_dir, "prompts", "mission_prompt.txt"))
 
-    model_dir = os.path.join(script_dir, "FM9G4B-V")
+    model_dir = os.environ.get("MISSION_MODEL_BASE", os.path.join(script_dir, "FM9G4B-V"))
 
 
 
@@ -172,6 +174,8 @@ class MissionGenerator:
 
         """向大模型发送任务描述，可附带当前图像，提取指令列表"""
 
+        ensure_ros_running()
+
         full_prompt = (
 
             self.knowledge_prompt.rstrip() + "\n\n"
@@ -210,9 +214,13 @@ class MissionGenerator:
 
         for t in result:
 
+            ensure_ros_running()
+
             print(t, flush=True, end="")
 
             generated += t
+
+        ensure_ros_running()
 
         print()
 
@@ -344,40 +352,26 @@ def normalize_commands(task_description: str, model_commands: str):
     return "\n".join(inferred)
 
 
+def ensure_ros_running():
+    if rospy.is_shutdown():
+        raise rospy.ROSInterruptException("mission_once ROS node has shut down")
+
+
 def publish_mission_command(pub, commands: str, timeout: float = 10.0) -> bool:
+    """等待连接后只发布一次；中断或重启不得重放旧飞行指令。"""
+    ensure_ros_running()
+    deadline = time.monotonic() + max(0.0, timeout)
 
-    """可靠发送任务指令，等待 mission 节点订阅后重复发布，避免一次性消息丢失。"""
-
-    deadline = rospy.Time.now() + rospy.Duration(timeout)
-
-    while pub.get_num_connections() == 0 and not rospy.is_shutdown() and rospy.Time.now() < deadline:
-
+    while pub.get_num_connections() == 0:
+        ensure_ros_running()
+        if time.monotonic() >= deadline:
+            rospy.logerr("/mission_command 当前没有订阅者，指令未发送。请确认 roslaunch mission_pkg llm_mission.launch 已启动。")
+            return False
         rospy.logwarn_throttle(2.0, "等待 /llm_mission_node 订阅 /mission_command ...")
-
-        rospy.sleep(0.1)
-
-
-
-    if pub.get_num_connections() == 0:
-
-        rospy.logerr("/mission_command 当前没有订阅者，指令未发送。请确认 roslaunch mission_pkg llm_mission.launch 已启动。")
-
-        return False
-
-
-
-    msg = String(data=commands)
-
-    for _ in range(5):
-
-        pub.publish(msg)
-
-        rospy.sleep(0.2)
-
-
-
-    rospy.loginfo("指令已发送到 /mission_command")
-
+        time.sleep(0.1)
+    ensure_ros_running()
+    pub.publish(String(data=commands))
+    rospy.loginfo("指令已发布到 /mission_command；执行结果请查看 /mission_result")
     return True
 
 
@@ -385,7 +379,7 @@ def main():
 
     rospy.init_node("mission_once", anonymous=True)
 
-    pub = rospy.Publisher("/mission_command", String, queue_size=10, latch=True)
+    pub = rospy.Publisher("/mission_command", String, queue_size=10, latch=False)
 
     rospy.sleep(1.0)
 
@@ -394,6 +388,8 @@ def main():
     print("[0/3] 初始化 ROS 节点...", flush=True)
 
     model, tokenizer, knowledge_prompt = load_model()
+
+    ensure_ros_running()
 
     generator = MissionGenerator(model, tokenizer, knowledge_prompt)
 
@@ -410,6 +406,8 @@ def main():
         try:
 
             commands = generator.generate_commands(task)
+
+            ensure_ros_running()
 
             if commands:
 
@@ -451,6 +449,8 @@ def main():
 
             continue
 
+        ensure_ros_running()
+
         if task.lower() in ("quit", "exit", "q"):
 
             print("退出。")
@@ -468,6 +468,8 @@ def main():
         try:
 
             commands = generator.generate_commands(task)
+
+            ensure_ros_running()
 
         except RuntimeError as e:
 
@@ -497,4 +499,7 @@ def main():
 
 if __name__ == "__main__":
 
-    main()
+    try:
+        main()
+    except (rospy.ROSInterruptException, KeyboardInterrupt):
+        print("\n[退出] ROS 节点已中断，未继续发送任务。请重新运行 mission_once.py 后输入新任务。", flush=True)

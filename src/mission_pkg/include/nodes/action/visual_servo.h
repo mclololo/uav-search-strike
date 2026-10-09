@@ -50,6 +50,7 @@ private:
     ros::Time node_start_time_;
     ros::Time state_start_time_;
     ros::Time stable_track_start_;
+    bool strike_position_reached_{false};
     ros::Time brake_hold_start_;
     ros::Time settle_start_time_;
     ros::Time lift_start_time_;
@@ -63,9 +64,15 @@ private:
     mutable std::mutex target_mutex_;
 
     geometry_msgs::Point corridor_origin_;
+    geometry_msgs::Point corridor_lateral_reference_;
+    geometry_msgs::Point staging_position_;
+    bool has_staging_position_{false};
     geometry_msgs::Point wait_entry_origin_;
     geometry_msgs::Point brake_origin_;
+    bool corridor_active_{false};
+    bool brake_escape_pending_{false};
     geometry_msgs::Point post_hit_lift_start_pos_;
+    geometry_msgs::Point post_hit_lift_target_pos_;
     double route_yaw_{0.0};
     double corridor_limit_distance_{0.0};
     double wait_entry_distance_{0.0};
@@ -104,7 +111,7 @@ private:
     double approach_area_threshold_{0.035};
     double post_hit_success_area_ratio_{0.025};
     double center_tolerance_{0.12};
-    double strike_stable_time_{0.15};
+    double strike_stable_time_{0.8};
     double sprint_alignment_tolerance_px_{24.0};
     double sprint_vertical_alignment_tolerance_px_{160.0};
     int sprint_alignment_stable_frames_{2};
@@ -128,12 +135,15 @@ private:
     double wait_entry_ratio_{0.35};
     double heading_hold_gain_{1.5};
     double heading_hold_max_rate_{0.30};
+    double cross_track_gain_{1.2};
+    double cross_track_max_velocity_{0.16};
     double wait_velocity_{0.16};
     double wait_timeout_{12.0};
     double wait_no_target_timeout_{0.5};
     double wait_contact_distance_{0.42};
 
     double brake_speed_threshold_{0.12};
+    double brake_position_tolerance_{0.20};
     double brake_hold_time_{0.30};
     double brake_timeout_{1.80};
     double post_hit_settle_time_{0.45};
@@ -141,6 +151,9 @@ private:
     double post_hit_lift_time_{0.45};
     double post_hit_lift_timeout_{1.0};
     double post_hit_lift_tolerance_{0.12};
+    double post_hit_backoff_distance_{0.0};
+    double post_hit_backoff_time_{1.20};
+    double post_hit_backoff_tolerance_{0.06};
     double post_hit_lift_target_z_{0.0};
     double post_hit_lift_yaw_{0.0};
     bool post_hit_lift_completed_{false};
@@ -207,6 +220,9 @@ private:
     double computeVz(double err_y, double dt);
     double alignmentYawRate(double visual_yaw_rate) const;
     double headingHoldYawRate() const;
+    bool atStagingXY() const;
+    bool readyForSprint(const ros::Time& now);
+    void publishStagingHold(double vz, double yaw_rate);
 
     double currentSpeed() const;
     double boundaryClearance() const;
@@ -224,12 +240,14 @@ private:
                             double& target_lateral, double& target_closing_speed) const;
     bool emergencyObstacleDetected() const;
     bool boundaryCommandSafe(double vx_body, double vy_body) const;
+    bool boundaryWorldCommandSafe(double vx_world, double vy_world) const;
     bool publishGuardedVelocity(double vx, double vy, double vz, double yaw_rate,
                                 double required_clearance, bool require_depth);
     void publishWorldVelocityWithYawRate(double vx_world, double vy_world, double vz,
                                          double yaw_rate);
 
     NodeStatus startBrake(BrakeOutcome outcome, const std::string& reason);
+    void publishBrakeCommand(double vertical_speed);
     void enterSprint(const ros::Time& now);
     NodeStatus executeSprint(bool target_visible, double target_age, double area_ratio,
                              double visual_yaw_rate);
