@@ -72,7 +72,6 @@ void MavRosConnect::InitMavRosConnect()
   nh_->param<double>("safety/y_max", safety_boundary_.y_max, 10.0);
   nh_->param<double>("safety/z_min", safety_boundary_.z_min, 0.0);
   nh_->param<double>("safety/z_max", safety_boundary_.z_max, 5.0);
-  nh_->param<double>("safety/reentry_margin", reentry_margin_, 0.5);
 
   if (safety_boundary_.enabled) {
     ROS_INFO("Safety boundary enabled: X[%.1f, %.1f] Y[%.1f, %.1f] Z[%.1f, %.1f]",
@@ -108,6 +107,14 @@ geometry_msgs::Point MavRosConnect::getHomePosition() const
 {
   std::lock_guard<std::mutex> lock(pose_mtx);
   return home_position_;
+}
+
+double MavRosConnect::getMeasuredSpeed() const
+{
+  std::lock_guard<std::mutex> lock(pose_mtx);
+  const auto& v = fcu_odom.twist.twist.linear;
+  const double reported = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  return std::max(pose_speed_.speed(ros::Time::now().toSec()), reported);
 }
 
 
@@ -171,6 +178,8 @@ void MavRosConnect::FcuOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
              home_position_.x, home_position_.y, home_position_.z);
   }
   fcu_odom = *msg;
+  const auto& p = msg->pose.pose.position;
+  pose_speed_.update(msg->header.stamp.toSec(), p.x, p.y, p.z);
 }
 
 void MavRosConnect::updateCommand(const mavros_msgs::PositionTarget &cmd)
@@ -211,8 +220,8 @@ void MavRosConnect::cmdPublishLoop(const ros::TimerEvent &event)
     // 安全边界检查
     if (safety_boundary_.enabled && !isWithinBoundary()) {
         ros::Time now = ros::Time::now();
-
-        // 1. 首次触发越界时，锁定当前位置作为悬停基准
+        
+        // 1. 首次触发越界时，锁定当前位置作为悬停点
         if (!hover_locked_) {
             hover_pos_ = fcu_odom.pose.pose.position;
             tf2::Quaternion q;
@@ -221,7 +230,7 @@ void MavRosConnect::cmdPublishLoop(const ros::TimerEvent &event)
             tf2::Matrix3x3(q).getRPY(r, p, y);
             hover_yaw_ = y;
             hover_locked_ = true;
-
+            
             ROS_ERROR("[Safety] DRONE OUT OF BOUNDARY! Triggering Hover Lock at (%.2f, %.2f, %.2f)",
                      hover_pos_.x, hover_pos_.y, hover_pos_.z);
         } else {
@@ -232,21 +241,7 @@ void MavRosConnect::cmdPublishLoop(const ros::TimerEvent &event)
                 last_safety_log_time_ = now;
             }
         }
-
-        // 悬停点向界内夹回 reentry_margin_：若直接钉在越界点，
-        // isWithinBoundary() 永远为 false，锁永远解不开，后续所有任务
-        // 指令（含返航）全部被覆盖导致任务死锁；夹回后无人机飞回界内，
-        // 下方的 else 分支自动解除锁定并交还任务控制权
-        const double x_lo = safety_boundary_.x_min + reentry_margin_;
-        const double x_hi = std::max(x_lo, safety_boundary_.x_max - reentry_margin_);
-        const double y_lo = safety_boundary_.y_min + reentry_margin_;
-        const double y_hi = std::max(y_lo, safety_boundary_.y_max - reentry_margin_);
-        const double z_lo = safety_boundary_.z_min + 0.1;
-        const double z_hi = std::max(z_lo, safety_boundary_.z_max - 0.1);
-        const double safe_x = std::max(x_lo, std::min(hover_pos_.x, x_hi));
-        const double safe_y = std::max(y_lo, std::min(hover_pos_.y, y_hi));
-        const double safe_z = std::max(z_lo, std::min(hover_pos_.z, z_hi));
-
+        
         // 构造悬停指令并更新到 current_cmd
         mavros_msgs::PositionTarget hover_cmd;
         hover_cmd.header.stamp = now;
@@ -261,11 +256,11 @@ void MavRosConnect::cmdPublishLoop(const ros::TimerEvent &event)
                               mavros_msgs::PositionTarget::IGNORE_AFZ |
                               mavros_msgs::PositionTarget::FORCE;
         // ENU → NED 转换（与 publishPosition 保持一致）
-        hover_cmd.position.x = -safe_y;          // NED x = -ENU y
-        hover_cmd.position.y = safe_x;           // NED y = ENU x
-        hover_cmd.position.z = safe_z;
+        hover_cmd.position.x = -hover_pos_.y;   // NED x = -ENU y
+        hover_cmd.position.y = hover_pos_.x;     // NED y = ENU x
+        hover_cmd.position.z = hover_pos_.z;
         hover_cmd.yaw = hover_yaw_ + M_PI / 2.0;
-
+        
         updateCommand(hover_cmd);
     } else {
         // 如果回到安全区域，重置锁定标志

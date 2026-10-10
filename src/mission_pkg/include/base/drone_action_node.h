@@ -45,10 +45,13 @@ protected:
     void publishPosition(const geometry_msgs::Point& pos, double yaw,
                         uint16_t coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED);
 
+    void publishXYHoldWithYawRate(const geometry_msgs::Point& pos, double vz, double yaw_rate);
+
     void publishFullCommand(const mavros_msgs::PositionTarget& full_cmd);
     
     // 发送当前悬停指令
     void sendHoverCommand();
+    void resetHoverCapture() { hover_active_ = false; }
 
     // 辅助功能
     bool throttledSetMode(const std::string& mode, double interval_sec = 5.0);

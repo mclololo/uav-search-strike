@@ -1,0 +1,8 @@
+{
+  "retrained_after_instance_reset": true,
+  "source_head": "checkpoints/fcos-recovered-20261008/epoch-04",
+  "sha256": "7a7cd85a5152a4b354efd134e7126c7e8b0732dbe2fe609f805ebe7aad2fa882",
+  "image_size": 448,
+  "score_threshold": 0.43,
+  "test_metrics": "/home/ubuntu/model/experiments/fm9g4b_grounding/eval/fcos-recovered-20261008-test/metrics.json"
+}

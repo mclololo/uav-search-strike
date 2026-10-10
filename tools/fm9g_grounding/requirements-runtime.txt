@@ -1,0 +1,18 @@
+# Verified on the restored GPUFree Python 3.10 environment, 2026-10-09.
+# Clone /opt/conda/envs/demo first; install only into fm9g-train.
+torch==2.3.1
+torchvision==0.18.1
+transformers==4.44.2
+accelerate==1.2.1
+peft==0.13.2
+safetensors==0.7.0
+numpy==1.23.5
+Pillow==10.1.0
+opencv-contrib-python==4.6.0.66
+rospkg==1.6.1
+catkin-pkg==1.1.0
+empy==3.3.2
+einops==0.8.2
+timm==0.9.10
+sentencepiece==0.2.0
+PyYAML==6.0.3

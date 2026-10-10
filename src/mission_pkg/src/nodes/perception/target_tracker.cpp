@@ -243,9 +243,6 @@ NodeStatus TargetTracker::handleNoDetection() {
         last_update_time_ = now;
 
         PixelTarget predicted_target = stateToPixelTarget(predicted, now, true);
-        // 标记为外推帧：下游（VisualServo）据此不把它当作真实检测，
-        // 命中（气球爆裂）后的丢失判定不再被外推宽限掩盖
-        predicted_target.extrapolated = true;
         setOutput("pixel_target", predicted_target);
         ROS_WARN_THROTTLE(1.0, "[%s]: Target temporarily lost, KF predicting: center=(%.1f, %.1f)",
                           name().c_str(), predicted_target.center_x, predicted_target.center_y);

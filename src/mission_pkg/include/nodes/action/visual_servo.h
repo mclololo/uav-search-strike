@@ -7,6 +7,7 @@
 
 #include "base/drone_action_node.h"
 
+#include <atomic>
 #include <limits>
 #include <mutex>
 #include <ros/time.h>
@@ -19,6 +20,7 @@ public:
     static PortsList providedPorts();
     NodeStatus onStart() override;
     NodeStatus onRunning() override;
+    void onHalted() override;
 
 private:
     enum class ServoState {
@@ -27,9 +29,6 @@ private:
         APPROACHING,
         SPRINTING,
         BRAKING,
-        POST_HIT_VERIFY,
-        FLY_AWAY_TURN,
-        FLY_AWAY,
         ENTERING_WAIT,
         WAITING,
         SETTLING,
@@ -51,35 +50,29 @@ private:
     ros::Time node_start_time_;
     ros::Time state_start_time_;
     ros::Time stable_track_start_;
+    bool strike_position_reached_{false};
     ros::Time brake_hold_start_;
-    ros::Time escape_turn_start_time_;
-    ros::Time escape_turn_command_time_;
     ros::Time settle_start_time_;
     ros::Time lift_start_time_;
     ros::Time wait_last_target_time_;
-    double last_target_measurement_stamp_{0.0};
-    double last_target_center_x_{0.0};
-    double target_x_velocity_px_s_{0.0};
     bool has_ever_received_data_{false};
     bool close_target_seen_{false};
-    // Updated only by real detections. A target leaving the image from the side
-    // must not be mistaken for a balloon that burst at the propeller plane.
-    bool last_close_target_in_strike_band_{false};
+    // Navigation remains covered until this strike node starts at the search point.
+    std::atomic<bool> depth_assist_active_{true};
     double max_area_ratio_{0.0};
     int align_stable_frames_{0};
     mutable std::mutex target_mutex_;
 
     geometry_msgs::Point corridor_origin_;
+    geometry_msgs::Point corridor_lateral_reference_;
+    geometry_msgs::Point staging_position_;
+    bool has_staging_position_{false};
     geometry_msgs::Point wait_entry_origin_;
     geometry_msgs::Point brake_origin_;
+    bool corridor_active_{false};
+    bool brake_escape_pending_{false};
     geometry_msgs::Point post_hit_lift_start_pos_;
-    geometry_msgs::Point escape_turn_hold_pos_;
-    double escape_turn_yaw_setpoint_{0.0};
-    // 命中后先在 FLY_AWAY_TURN 悬停转正，再进入 FLY_AWAY 沿机头方向撤离。
-    ros::Time arc_start_time_;
-    geometry_msgs::Point arc_start_pos_;
-    double arc_v0_fwd_{0.0};    // 命中瞬间沿走廊方向的前向速度(world, 带符号)
-    double arc_target_z_{0.0};  // 弧线目标高度 = 命中点高度 + post_hit_lift_height_
+    geometry_msgs::Point post_hit_lift_target_pos_;
     double route_yaw_{0.0};
     double corridor_limit_distance_{0.0};
     double wait_entry_distance_{0.0};
@@ -111,12 +104,6 @@ private:
     double sprint_velocity_{0.85};
     double sprint_time_{6.0};
     bool sprint_lock_visual_correction_{false};
-    double sprint_visual_max_yaw_rate_{0.20};
-    double sprint_target_lead_time_{0.25};
-    double sprint_target_lead_max_px_{40.0};
-    double sprint_realign_error_px_{32.0};
-    int sprint_realign_frames_{2};
-    int sprint_realign_bad_frames_{0};
     double hit_offset_x_{45.0};
     double hit_offset_y_{0.0};
     double hit_offset_reference_depth_{0.80};
@@ -124,7 +111,7 @@ private:
     double approach_area_threshold_{0.035};
     double post_hit_success_area_ratio_{0.025};
     double center_tolerance_{0.12};
-    double strike_stable_time_{0.15};
+    double strike_stable_time_{0.8};
     double sprint_alignment_tolerance_px_{24.0};
     double sprint_vertical_alignment_tolerance_px_{160.0};
     int sprint_alignment_stable_frames_{2};
@@ -133,8 +120,6 @@ private:
     double sprint_altitude_hold_gain_{1.5};
     double sprint_max_vertical_correction_{0.08};
     double sprint_target_loss_grace_{1.50};
-    // 近距离确认目标后的丢失宽限：近距离丢框≈气球已爆，用短宽限立即判命中
-    double close_target_loss_grace_{0.30};
     double data_timeout_{0.30};
     double startup_grace_time_{1.0};
     double max_alignment_yaw_deviation_{0.15};
@@ -150,28 +135,33 @@ private:
     double wait_entry_ratio_{0.35};
     double heading_hold_gain_{1.5};
     double heading_hold_max_rate_{0.30};
+    double cross_track_gain_{1.2};
+    double cross_track_max_velocity_{0.16};
     double wait_velocity_{0.16};
     double wait_timeout_{12.0};
     double wait_no_target_timeout_{0.5};
     double wait_contact_distance_{0.42};
 
     double brake_speed_threshold_{0.12};
+    double brake_position_tolerance_{0.20};
     double brake_hold_time_{0.30};
     double brake_timeout_{1.80};
     double post_hit_settle_time_{0.45};
-    double post_hit_verify_time_{1.0};
     double post_hit_lift_height_{0.35};
     double post_hit_lift_time_{0.45};
     double post_hit_lift_timeout_{1.0};
     double post_hit_lift_tolerance_{0.12};
+    double post_hit_backoff_distance_{0.0};
+    double post_hit_backoff_time_{1.20};
+    double post_hit_backoff_tolerance_{0.06};
     double post_hit_lift_target_z_{0.0};
     double post_hit_lift_yaw_{0.0};
     bool post_hit_lift_completed_{false};
     double post_hit_escape_yaw_{0.0};
     double post_hit_escape_velocity_{0.18};
-    double post_hit_escape_distance_{0.15};
+    double post_hit_escape_distance_{0.10};
     double post_hit_escape_time_{0.60};
-    double post_hit_escape_yaw_rate_{0.60};
+    double post_hit_escape_yaw_rate_{0.12};
 
     double recovery_delay_{0.15};
     double recovery_yaw_rate_{0.45};
@@ -230,6 +220,9 @@ private:
     double computeVz(double err_y, double dt);
     double alignmentYawRate(double visual_yaw_rate) const;
     double headingHoldYawRate() const;
+    bool atStagingXY() const;
+    bool readyForSprint(const ros::Time& now);
+    void publishStagingHold(double vz, double yaw_rate);
 
     double currentSpeed() const;
     double boundaryClearance() const;
@@ -238,6 +231,7 @@ private:
     double remainingSprintDistance() const;
 
     void depthCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& msg);
+    void setDepthAssistActive(bool active);
     bool getDepthSnapshot(double& hard_clearance, double& target_depth) const;
     bool getDepthSnapshot(double& hard_clearance, double& target_depth,
                           double& target_lateral, double& target_closing_speed) const;
@@ -246,20 +240,18 @@ private:
                             double& target_lateral, double& target_closing_speed) const;
     bool emergencyObstacleDetected() const;
     bool boundaryCommandSafe(double vx_body, double vy_body) const;
+    bool boundaryWorldCommandSafe(double vx_world, double vy_world) const;
     bool publishGuardedVelocity(double vx, double vy, double vz, double yaw_rate,
                                 double required_clearance, bool require_depth);
     void publishWorldVelocityWithYawRate(double vx_world, double vy_world, double vz,
                                          double yaw_rate);
 
     NodeStatus startBrake(BrakeOutcome outcome, const std::string& reason);
+    void publishBrakeCommand(double vertical_speed);
     void enterSprint(const ros::Time& now);
     NodeStatus executeSprint(bool target_visible, double target_age, double area_ratio,
-                             double visual_yaw_rate, double predicted_error_px);
+                             double visual_yaw_rate);
     NodeStatus executeBrake();
-    NodeStatus executePostHitVerify();
-    // 命中后先原地转向撤离方向，再沿机头方向撤离。
-    NodeStatus executeFlyAwayTurn();
-    NodeStatus executeFlyAway();
     NodeStatus executeWaitEntry();
     NodeStatus executeWaiting();
     NodeStatus startRecovery();

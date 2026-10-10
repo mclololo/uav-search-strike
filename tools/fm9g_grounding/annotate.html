@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FM9G 图像标注</title>
+<style>
+*{box-sizing:border-box;letter-spacing:0}body{margin:0;background:#f3f5f6;color:#20262a;font:14px system-ui,"Microsoft YaHei",sans-serif}button,input,select{font:inherit}button{cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;border:1px solid #cbd1d5;background:#fff;color:inherit;border-radius:4px;padding:6px 10px}button:hover:not(:disabled){background:#edf1f2}button:disabled{opacity:.45;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #137f76;outline-offset:2px}button.primary{background:#137f76;color:white;border-color:#137f76}button.primary:hover:not(:disabled){background:#0f6b64}svg{width:18px;height:18px;flex:none}.icon{width:36px;padding:6px}.hidden{display:none!important}header{background:#fff;border-bottom:1px solid #d8dddf;padding:12px 18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}h1{font-size:18px;margin:0;font-weight:650}.badge{font-size:12px;color:#53626b;border-left:1px solid #cbd1d5;padding-left:12px}.actions{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}main{display:grid;grid-template-columns:252px minmax(0,1fr);min-height:calc(100vh - 66px)}aside{padding:16px;background:white;border-right:1px solid #d8dddf;display:flex;flex-direction:column;gap:12px}label.field{display:flex;flex-direction:column;gap:6px;color:#4e5b63;font-size:12px}input,select{min-width:0;width:100%;height:36px;border:1px solid #cbd1d5;border-radius:4px;padding:6px 8px;color:#20262a;background:#fff}#progress{font-variant-numeric:tabular-nums;color:#576269;font-size:12px;line-height:1.7}#fileList{height:290px;overflow:auto;border-top:1px solid #e0e4e5;border-bottom:1px solid #e0e4e5}#fileList button{width:100%;border:0;border-radius:0;justify-content:space-between;min-height:34px;text-align:left;padding:7px 4px;font-size:12px}#fileList button[aria-current=true]{background:#dff0ec;color:#095e53}#fileList span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dot{width:8px;height:8px;border-radius:50%;background:#b6bfc3;margin-left:8px;flex:none}.dot.reviewed{background:#168675}.dot.skipped{background:#ca8940}.small-title{font-size:12px;font-weight:600;color:#526068;margin:0}.box-row{display:flex;gap:4px;margin-top:6px}.box-row .box-select{flex:1;min-width:0;justify-content:flex-start;font-size:12px}.box-select[aria-pressed=true]{border-color:#137f76;background:#e7f3f0}#boxes{max-height:220px;overflow:auto}.workspace{min-width:0;padding:14px 18px}.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}.tools{display:flex;gap:4px}.tools button[aria-pressed=true]{background:#dff0ec;border-color:#137f76}.classes{display:flex;gap:6px;flex-wrap:wrap}.classes label{display:inline-flex;align-items:center;gap:5px;position:relative;padding:7px 8px;min-height:36px;border:1px solid transparent;border-radius:4px;cursor:pointer}.classes label:has(input:checked){background:#fff;border-color:#b7c4c8}.classes input{width:14px;height:14px;margin:0;accent-color:#137f76}.swatch{width:10px;height:10px;display:inline-block;flex:none}.image-head{display:flex;justify-content:space-between;gap:10px;margin:8px 0;font-size:12px;color:#56636b;min-height:18px}#filename{overflow-wrap:anywhere}.stage{height:calc(100vh - 258px);min-height:300px;display:flex;align-items:center;justify-content:center;background:#e3e8eb;overflow:hidden;position:relative}canvas{display:block;max-width:100%;max-height:100%;width:auto;height:auto;touch-action:none;cursor:crosshair}#emptyStage{display:flex;align-items:center;justify-content:center;height:100%}footer{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}.counter{font-variant-numeric:tabular-nums;min-width:80px;text-align:center}#message{font-size:13px;margin:10px 0 0;min-height:20px;color:#526168;overflow-wrap:anywhere}#message.error{color:#a83131}#boxCount{color:#748087;font-weight:400}.push{margin-left:auto}
+@media(max-width:760px){header{padding:10px}.badge{display:none}.actions{margin-left:0}.actions button{font-size:12px}main{grid-template-columns:minmax(0,1fr)}aside{border-right:0;border-bottom:1px solid #d8dddf;padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px}#fileList,#boxes,.box-heading{display:none}#progress{grid-column:1/-1}.workspace{padding:10px}.stage{height:48vh;min-height:250px}.toolbar{gap:6px}.classes{gap:2px}.classes label{font-size:12px;padding:5px}.push{margin-left:0}footer{gap:6px}.counter{min-width:58px}h1{font-size:16px}}
+</style>
+</head>
+<body>
+<header><h1>图像标注</h1><span class="badge">FM9G · 四类目标</span><div class="actions">
+<button id="open"><i data-lucide="folder-open"></i>选择采集目录</button>
+<button id="import" disabled><i data-lucide="file-up"></i>导入标注</button>
+<button id="exportYolo" class="primary" disabled><i data-lucide="download"></i>导出 YOLO 标注</button>
+<button id="export" disabled><i data-lucide="download"></i>导出已复核标注</button></div></header>
+<input class="hidden" id="files" type="file" webkitdirectory multiple>
+<input class="hidden" id="annotations" type="file" accept=".jsonl,.json">
+<main><aside>
+<label class="field">采集目录<input id="run" readonly placeholder="未选择"></label>
+<label class="field">场景 ID<input id="scene" disabled></label>
+<div id="progress">0 张 · 已确认 0 · 跳过 0 · 待确认 0</div>
+<select id="jump" aria-label="选择图片" disabled><option>未选择图片</option></select>
+<div id="fileList"></div><p class="small-title box-heading">目标框 <span id="boxCount">0</span></p><div id="boxes"></div>
+</aside><section class="workspace">
+<div class="toolbar"><div class="tools">
+<button class="icon" id="draw" title="画框" aria-label="画框" aria-pressed="true"><i data-lucide="square-dashed-mouse-pointer"></i></button>
+<button class="icon" id="select" title="选择和调整" aria-label="选择和调整" aria-pressed="false"><i data-lucide="mouse-pointer-2"></i></button>
+<button class="icon" id="undo" title="撤销本图上一步" aria-label="撤销本图上一步" disabled><i data-lucide="undo-2"></i></button>
+<button class="icon" id="delete" title="删除选中框" aria-label="删除选中框" disabled><i data-lucide="trash-2"></i></button>
+</div><div class="classes" role="radiogroup" aria-label="目标类别">
+<label><input type="radio" name="class" value="square_frame" checked><span class="swatch" style="background:#15806e"></span>方框</label>
+<label><input type="radio" name="class" value="red_balloon"><span class="swatch" style="background:#dc4141"></span>红气球</label>
+<label><input type="radio" name="class" value="blue_balloon"><span class="swatch" style="background:#287cce"></span>蓝气球</label>
+<label><input type="radio" name="class" value="purple_balloon"><span class="swatch" style="background:#935ab9"></span>紫气球</label>
+</div></div>
+<div class="image-head"><span id="filename">未选择图片</span><span id="dimensions"></span></div>
+<div class="stage"><div id="emptyStage"><button id="openEmpty"><i data-lucide="folder-open"></i>选择采集目录</button></div><canvas id="canvas" class="hidden"></canvas></div>
+<footer><button id="prev" class="icon" aria-label="上一张" title="上一张" disabled><i data-lucide="chevron-left"></i></button><span class="counter" id="counter">0 / 0</span><button id="next" class="icon" aria-label="下一张" title="下一张" disabled><i data-lucide="chevron-right"></i></button>
+<button id="empty" class="push" disabled><i data-lucide="circle-slash"></i>确认无目标</button><button id="skip" disabled><i data-lucide="skip-forward"></i>跳过</button><button id="review" class="primary" disabled><i data-lucide="check"></i>确认并下一张</button></footer>
+<p id="message" role="status" aria-live="polite"></p>
+</section></main>
+<script src="lucide.min.js"></script>
+<script>
+'use strict';
+const $=id=>document.getElementById(id), canvas=$('canvas'), ctx=canvas.getContext('2d');
+const classes=['square_frame','red_balloon','blue_balloon','purple_balloon'];
+const labels=['方框','红气球','蓝气球','紫气球'],colors=['#15806e','#dc4141','#287cce','#935ab9'];
+let files=[],records=[],teacherRecords=[],index=0,run='',scene='',selectedClass=classes[0],mode='select',selected=-1,drag=null,history=[],image=null,storageKey='',loadSerial=0;
+function icons(){if(window.lucide)lucide.createIcons()}
+function message(text='',error=false){$('message').textContent=text;$('message').classList.toggle('error',error)}
+function copy(value){return JSON.parse(JSON.stringify(value))}
+function current(){return records[index]}
+function persist(){if(!storageKey)return;try{localStorage.setItem(storageKey,JSON.stringify({scene,records}))}catch{message('浏览器存储不可用，请导出已确认标注。',true)}}
+function remember(){history.push(copy(current()));if(history.length>30)history.shift()}
+function changed(){current().state='pending';current().edited=true;persist();renderUI();paint()}
+function importedState(record){return record.review_status==='reviewed'&&record.needs_review!==true?'reviewed':'pending'}
+function eligibleTeacher(r){return r.annotation_source==='yolo_ros'&&r.detection_status==='matched'&&r.objects.length>0&&!(r.rejected_predictions||[]).length&&validateBoxes(r.objects,r.width,r.height)}
+function annotationRows(text){
+ const rows=text.trim().split(/\r?\n/).filter(Boolean).map(JSON.parse),paths=new Set(records.map(r=>r.image)),seen=new Set();
+ if(!rows.length)throw Error('标注文件为空');
+ for(const r of rows){if(!paths.has(r.image)||seen.has(r.image)||r.scene_id!==scene||!Number.isInteger(r.width)||r.width<=0||!Number.isInteger(r.height)||r.height<=0||!validateBoxes(r.objects,r.width,r.height))throw Error('标注路径、场景 ID 或 bbox 无效');seen.add(r.image)}
+ return rows;
+}
+function displayRecord(r){return {...copy(r),state:importedState(r)}}
+function stats(){return {reviewed:records.filter(r=>r.state==='reviewed').length,skipped:records.filter(r=>r.state==='skipped').length,pending:records.filter(r=>r.state==='pending').length}}
+function validateBoxes(boxes,width,height){return Array.isArray(boxes)&&boxes.every(o=>o&&classes.includes(o.class_name)&&Array.isArray(o.bbox)&&o.bbox.length===4&&o.bbox.every(Number.isFinite)&&o.bbox[0]>=0&&o.bbox[1]>=0&&o.bbox[0]<o.bbox[2]&&o.bbox[1]<o.bbox[3]&&o.bbox[2]<=width&&o.bbox[3]<=height)}
+function renderUI(){
+ const s=stats(),r=current();$('progress').textContent=`${files.length} 张 · 已确认 ${s.reviewed} · 跳过 ${s.skipped} · 待确认 ${s.pending}`;
+ $('counter').textContent=files.length?`${index+1} / ${files.length}`:'0 / 0';$('filename').textContent=r?r.image:'未选择图片';$('dimensions').textContent=r&&r.width?`${r.width} × ${r.height}`:'';
+ $('prev').disabled=!r||index===0;$('next').disabled=!r||index===files.length-1;$('empty').disabled=!image;$('skip').disabled=!image;$('review').disabled=!image||!r.objects.length;
+ $('export').disabled=!s.reviewed;$('import').disabled=!files.length;$('undo').disabled=!history.length;$('delete').disabled=selected<0;
+ $('exportYolo').disabled=!teacherRecords.some(eligibleTeacher);
+ if(teacherRecords.length)$('progress').textContent+=` · YOLO 框 ${teacherRecords.reduce((n,r)=>n+r.objects.length,0)}`;
+ $('boxCount').textContent=r?r.objects.length:0;$('jump').value=String(index);
+ for(const node of $('fileList').children){const i=Number(node.dataset.index);node.setAttribute('aria-current',String(i===index));node.lastChild.className='dot '+records[i].state}
+ $('boxes').replaceChildren();if(r)r.objects.forEach((o,i)=>{const row=document.createElement('div');row.className='box-row';const button=document.createElement('button');button.className='box-select';button.setAttribute('aria-pressed',String(i===selected));const swatch=document.createElement('span');swatch.className='swatch';swatch.style.background=colors[classes.indexOf(o.class_name)];button.append(swatch,document.createTextNode(`${i+1} ${labels[classes.indexOf(o.class_name)]}${Number.isFinite(o.score)?' '+o.score.toFixed(2):''}`));button.onclick=()=>{selected=i;setMode('select');renderUI();paint()};row.append(button);$('boxes').append(row)});
+}
+function setMode(value){mode=value;$('draw').setAttribute('aria-pressed',String(mode==='draw'));$('select').setAttribute('aria-pressed',String(mode==='select'));canvas.style.cursor=mode==='draw'?'crosshair':'default'}
+function paint(){
+ if(!image)return;ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0);const scale=canvas.width/Math.max(canvas.getBoundingClientRect().width,1),font=Math.max(13,Math.min(24,13*scale)),line=Math.max(2,2*scale);
+ function box(o,i){const [x1,y1,x2,y2]=o.bbox;ctx.strokeStyle=colors[classes.indexOf(o.class_name)];ctx.lineWidth=i===selected?line+1:line;ctx.strokeRect(x1,y1,x2-x1,y2-y1);ctx.font=`600 ${font}px sans-serif`;const text=`${o.class_name}${Number.isFinite(o.score)?' '+o.score.toFixed(2):''}`,tw=ctx.measureText(text).width+8;const left=Math.min(x1,Math.max(0,canvas.width-tw)),top=y1>font+9?y1-font-9:y1;ctx.fillStyle=ctx.strokeStyle;ctx.fillRect(left,top,tw,font+7);ctx.fillStyle='white';ctx.fillText(text,left+4,top+font+1);if(i===selected){for(const [x,y] of [[x1,y1],[x2,y1],[x1,y2],[x2,y2]]){ctx.fillStyle='white';ctx.fillRect(x-4*scale,y-4*scale,8*scale,8*scale);ctx.strokeRect(x-4*scale,y-4*scale,8*scale,8*scale)}}}
+ current().objects.forEach(box);if(drag?.kind==='draw'){ctx.strokeStyle=colors[classes.indexOf(selectedClass)];ctx.lineWidth=line;ctx.setLineDash([7*scale,4*scale]);ctx.strokeRect(drag.start.x,drag.start.y,drag.end.x-drag.start.x,drag.end.y-drag.start.y);ctx.setLineDash([])}
+}
+async function load(){
+ const serial=++loadSerial;image=null;selected=-1;drag=null;history=[];$('emptyStage').classList.add('hidden');canvas.classList.add('hidden');renderUI();message();const url=URL.createObjectURL(files[index]),img=new Image();
+ img.onload=()=>{URL.revokeObjectURL(url);if(serial!==loadSerial)return;const r=current();if(r.width&&(r.width!==img.naturalWidth||r.height!==img.naturalHeight)){r.objects=[];r.state='pending';teacherRecords=teacherRecords.filter(t=>t.image!==r.image);message('图像尺寸与保存的标注不符，请重新标注。',true)}r.width=img.naturalWidth;r.height=img.naturalHeight;if(!validateBoxes(r.objects,r.width,r.height)){r.objects=[];r.state='pending';message('保存的标注包含无效框，已恢复为待确认。',true)}image=img;canvas.width=r.width;canvas.height=r.height;canvas.classList.remove('hidden');renderUI();paint();if(!$('message').textContent)message(r.objects.length?`已显示 ${r.objects.length} 个框，可直接导出 YOLO 标注；也可选框调整。`:'本图没有已加载的检测框；可导入标注或补框。')};
+ img.onerror=()=>{URL.revokeObjectURL(url);message('无法读取图片。',true)};img.src=url;
+}
+function go(i){if(i<0||i>=files.length||drag)return;persist();index=i;load()}
+function advance(){if(index<files.length-1)go(index+1);else{renderUI();message('已到最后一张。')}}
+async function openFiles(){
+ const picked=[...$('files').files];const pictures=picked.filter(f=>/\.(png|jpe?g)$/i.test(f.name)).sort((a,b)=>a.webkitRelativePath.localeCompare(b.webkitRelativePath));if(!pictures.length){message('所选目录中没有 PNG 或 JPG 图片。',true);return}
+ const folder=pictures[0].webkitRelativePath.split('/')[0];if(!/^[A-Za-z0-9_-]+$/.test(folder)){message('请选择采集目录，例如 run_001。',true);return}
+ files=pictures;run=folder;scene=run;const metadata=picked.find(f=>f.webkitRelativePath===`${run}/capture.json`);if(metadata){try{const value=JSON.parse(await metadata.text());if(typeof value.scene_id==='string'&&value.scene_id.trim())scene=value.scene_id}catch{message('无法读取 capture.json，将使用目录名作为场景 ID。',true)}}
+ records=files.map(f=>({image:`images/${f.webkitRelativePath}`,state:'pending',objects:[],width:0,height:0}));teacherRecords=[];storageKey='fm9g-bbox-v2:'+run+':'+files.map(f=>`${f.webkitRelativePath}:${f.size}:${f.lastModified}`).join('|');
+ const sidecar=picked.find(f=>f.webkitRelativePath===`${run}/pseudo.jsonl`||f.webkitRelativePath===`${run}/${run}.jsonl`);
+ let annotationError='';
+ if(sidecar){try{const rows=annotationRows(await sidecar.text());teacherRecords=rows.filter(r=>r.annotation_source==='yolo_ros');const byPath=new Map(rows.map(r=>[r.image,r]));records=records.map(r=>byPath.has(r.image)?displayRecord(byPath.get(r.image)):r)}catch(e){annotationError=e.message}}
+ try{const saved=JSON.parse(localStorage.getItem(storageKey)||'null');if(saved&&Array.isArray(saved.records)&&saved.records.length===records.length&&saved.records.every((r,i)=>r.image===records[i].image&&['pending','reviewed','skipped'].includes(r.state)&&Number.isInteger(r.width)&&Number.isInteger(r.height)&&((r.width===0&&r.height===0&&r.state==='pending'&&Array.isArray(r.objects)&&r.objects.length===0)||validateBoxes(r.objects,r.width,r.height)))){records=records.map((r,i)=>{const s=saved.records[i];return s.edited||s.objects.length||s.state!=='pending'?s:r});scene=saved.scene||scene}}catch{}
+ index=0;$('run').value=run;$('scene').value=scene;$('scene').disabled=false;$('jump').disabled=false;$('jump').replaceChildren();$('fileList').replaceChildren();
+ files.forEach((f,i)=>{const option=document.createElement('option');option.value=i;option.textContent=`${i+1}. ${f.name}`;$('jump').append(option);const b=document.createElement('button');b.dataset.index=i;const name=document.createElement('span');name.textContent=f.name;const dot=document.createElement('span');b.append(name,dot);b.onclick=()=>go(i);$('fileList').append(b)});setMode('select');load();if(annotationError)message(annotationError,true);
+}
+function point(e){const r=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(canvas.width,(e.clientX-r.left)*canvas.width/r.width)),y:Math.max(0,Math.min(canvas.height,(e.clientY-r.top)*canvas.height/r.height))}}
+canvas.onpointerdown=e=>{
+ if(!image||e.button!==0)return;const p=point(e);message();
+ if(mode==='draw'){drag={kind:'draw',start:p,end:p};selected=-1}else{
+  const objects=current().objects,margin=10*canvas.width/canvas.getBoundingClientRect().width;let corner=-1;
+  if(selected>=0){const [x1,y1,x2,y2]=objects[selected].bbox;corner=[[x1,y1],[x2,y1],[x1,y2],[x2,y2]].findIndex(([x,y])=>Math.abs(x-p.x)<=margin&&Math.abs(y-p.y)<=margin)}
+  if(corner<0)selected=objects.findLastIndex(o=>p.x>=o.bbox[0]&&p.x<=o.bbox[2]&&p.y>=o.bbox[1]&&p.y<=o.bbox[3]);
+  if(selected>=0){remember();drag={kind:corner>=0?'resize':'move',corner,start:p,original:copy(objects[selected].bbox),snapshot:history.at(-1)}}
+ }
+ canvas.setPointerCapture(e.pointerId);renderUI();paint();
+};
+canvas.onpointermove=e=>{
+ if(!drag)return;const p=point(e);if(drag.kind==='draw'){drag.end=p;paint();return}
+ const b=drag.original,dx=p.x-drag.start.x,dy=p.y-drag.start.y;let out;
+ if(drag.kind==='move'){const x=Math.max(0,Math.min(canvas.width-(b[2]-b[0]),b[0]+dx)),y=Math.max(0,Math.min(canvas.height-(b[3]-b[1]),b[1]+dy));out=[x,y,x+b[2]-b[0],y+b[3]-b[1]]}else{out=[...b];if(drag.corner%2===0)out[0]=Math.min(p.x,b[2]-3);else out[2]=Math.max(p.x,b[0]+3);if(drag.corner<2)out[1]=Math.min(p.y,b[3]-3);else out[3]=Math.max(p.y,b[1]+3)}
+ current().objects[selected].bbox=out.map(Math.round);paint();
+};
+canvas.onpointerup=()=>{if(!drag)return;if(drag.kind==='draw'){const p=drag.start,q=drag.end,b=[Math.min(p.x,q.x),Math.min(p.y,q.y),Math.max(p.x,q.x),Math.max(p.y,q.y)].map(Math.round);if(b[2]-b[0]>=3&&b[3]-b[1]>=3){remember();current().objects.push({class_name:selectedClass,bbox:b});selected=current().objects.length-1;drag=null;changed();return}}else{drag=null;changed();return}drag=null;paint();renderUI()};
+canvas.onpointercancel=()=>{if(drag?.snapshot){records[index]=drag.snapshot;history.pop()}drag=null;paint();renderUI()};
+function download(text,name){const url=URL.createObjectURL(new Blob([text],{type:'application/x-ndjson;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+$('export').onclick=()=>{const s=stats();if(!s.reviewed)return;if(s.pending&&!confirm(`导出 ${s.reviewed} 张已确认图片；${s.pending} 张待确认和 ${s.skipped} 张跳过图片不导出。`))return;const output=records.filter(r=>r.state==='reviewed').map(r=>({image:r.image,width:r.width,height:r.height,scene_id:scene,review_status:'reviewed',needs_review:false,annotation_source:r.annotation_source||'manual',objects:r.objects.map(o=>({class_name:o.class_name,bbox:o.bbox,visible:true}))}));download(output.map(r=>JSON.stringify(r)).join('\n')+'\n',run+'.jsonl');message(`已导出 ${output.length} 张已确认图片。`)};
+$('import').onclick=()=>$('annotations').click();
+$('annotations').onchange=async()=>{const file=$('annotations').files[0];if(!file)return;try{const rows=annotationRows(await file.text()),byPath=new Map(rows.map(r=>[r.image,r]));if(records.some(r=>r.objects.length||r.state!=='pending')&&!confirm('导入会覆盖对应图片的已有标注。'))return;records=records.map(r=>byPath.has(r.image)?displayRecord(byPath.get(r.image)):r);const teachers=new Map(teacherRecords.map(r=>[r.image,r]));for(const r of rows)if(r.annotation_source==='yolo_ros')teachers.set(r.image,r);teacherRecords=[...teachers.values()];persist();load();message(`已加载 ${rows.length} 张标注，可直接导出 YOLO 结果。`)}catch(e){message(e.message,true)}finally{$('annotations').value=''}};
+$('exportYolo').onclick=()=>{
+ const output=teacherRecords.filter(eligibleTeacher).map(r=>({...copy(r),scene_id:scene,review_status:'auto_accepted',needs_review:false,human_reviewed:false}));
+ if(!output.length)return;
+ download(output.map(r=>JSON.stringify(r)).join('\n')+'\n',run+'_yolo_training.jsonl');
+ message(`已导出 ${output.length} 张、${output.reduce((n,r)=>n+r.objects.length,0)} 个 YOLO 自动标签；未进行人工复核。`);
+};
+$('files').onchange=openFiles;$('open').onclick=$('openEmpty').onclick=()=>$('files').click();$('scene').onchange=()=>{const value=$('scene').value.trim();if(!value){$('scene').value=scene;return}scene=value;persist()};$('jump').onchange=()=>go(Number($('jump').value));$('prev').onclick=()=>go(index-1);$('next').onclick=()=>go(index+1);
+$('draw').onclick=()=>setMode('draw');$('select').onclick=()=>setMode('select');
+$('undo').onclick=()=>{if(!history.length)return;records[index]=history.pop();selected=-1;persist();paint();renderUI()};
+$('delete').onclick=()=>{if(selected<0)return;remember();current().objects.splice(selected,1);selected=-1;changed()};
+$('empty').onclick=()=>{if(!image)return;if(current().objects.length&&!confirm('清除本图所有框并确认为无目标？'))return;remember();current().objects=[];current().state='reviewed';persist();advance()};
+$('skip').onclick=()=>{if(!image)return;remember();current().state='skipped';persist();advance()};
+$('review').onclick=()=>{if(!image||!current().objects.length)return;remember();current().state='reviewed';persist();advance()};
+document.querySelectorAll('[name=class]').forEach(input=>input.onchange=()=>{selectedClass=input.value;if(mode==='select'&&selected>=0){remember();current().objects[selected].class_name=selectedClass;changed()}});
+window.addEventListener('resize',paint);icons();setMode('select');renderUI();
+</script>
+</body>
+</html>

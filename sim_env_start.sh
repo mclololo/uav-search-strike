@@ -25,6 +25,40 @@ export LC_CTYPE=en_US.UTF-8
 export TERM=xterm-256color
 export PYTHONIOENCODING=utf-8
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WS_DIR="${SCRIPT_DIR}"
+
+MODEL_SOURCE="${WS_DIR}/云服务器上model文件夹里要改动的代码"
+LLM_NODE="${LLM_NODE:-${MODEL_SOURCE}/mission_once.py}"
+export MISSION_PROMPT_PATH="${MISSION_PROMPT_PATH:-${MODEL_SOURCE}/mission_prompt.txt}"
+export MISSION_MODEL_BASE="${MISSION_MODEL_BASE:-/home/ubuntu/model/FM9G4B-V}"
+if [ ! -f "${LLM_NODE}" ] || [ ! -f "${MISSION_PROMPT_PATH}" ]; then
+    echo "[ERROR] Repository mission parser or prompt missing: ${MODEL_SOURCE}" >&2
+    exit 1
+fi
+
+PERCEPTION_BACKEND="${PERCEPTION_BACKEND:-yolo}"
+FM9G_NODE="${FM9G_NODE:-${WS_DIR}/tools/fm9g_grounding/ros_fcos_node.py}"
+FM9G_PYTHON="${FM9G_PYTHON:-/home/ubuntu/.conda/envs/fm9g-train/bin/python}"
+FM9G_HEAD="${FM9G_HEAD:-${WS_DIR}/tools/fm9g_grounding/deployment/fcos-recovered-20261008/epoch-04}"
+if [ "${PERCEPTION_BACKEND}" = "fm9g" ]; then
+    if [ ! -f "${FM9G_HEAD}/head.safetensors" ]; then
+        echo "[ERROR] FM9G detector head missing: ${FM9G_HEAD}/head.safetensors" >&2
+        exit 1
+    fi
+    if [ ! -f "${FM9G_NODE}" ]; then
+        echo "[ERROR] FM9G detector node missing: ${FM9G_NODE}" >&2
+        exit 1
+    fi
+    if [ ! -x "${FM9G_PYTHON}" ]; then
+        echo "[ERROR] FM9G Python environment missing: ${FM9G_PYTHON}" >&2
+        exit 1
+    fi
+elif [ "${PERCEPTION_BACKEND}" != "yolo" ]; then
+    echo "[ERROR] Unknown PERCEPTION_BACKEND: ${PERCEPTION_BACKEND}" >&2
+    exit 1
+fi
+
 # 注意: 不使用 set -e，因为后台进程崩溃时不应终止整个脚本
 bash ./kill_ros_pid.sh
 
@@ -38,10 +72,6 @@ NC='\033[0m'
 # ========== Xterm 公共参数（与 test.sh 保持一致）==========
 XTERM_OPTS="-en UTF-8 -u8 -lc -sl 10000 -bg black -fg white -fa 'Monospace' -fs 12"
 XTERM_ENV="export LANG=en_US.UTF-8; export LC_ALL=en_US.UTF-8; export TERM=xterm-256color; export PYTHONIOENCODING=utf-8; unset PROMPT_COMMAND"
-
-# 获取脚本所在目录（catkin_ws）
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WS_DIR="${SCRIPT_DIR}"
 
 # ========== 配置 xterm 剪贴板粘贴 (Ctrl+Shift+V / Shift+Insert) ==========
 XRESOURCES_FILE="/tmp/.xterm_clipboard_resources"
@@ -65,7 +95,10 @@ if [ -f "${WS_DIR}/devel/setup.bash" ]; then
     echo -e "${GREEN}[OK] Sourced devel/setup.bash${NC}"
 
     # --- RflySim SDK PYTHONPATH ---
-    RFLYSIM_SDK="/mnt/c/PX4PSP/RflySimAPIs/RflySimSDK"
+    RFLYSIM_SDK="${RFLYSIM_SDK:-/home/ubuntu/PX4PSP/RflySimAPIs/RflySimSDK}"
+    if [ ! -d "${RFLYSIM_SDK}" ] && [ -d /mnt/c/PX4PSP/RflySimAPIs/RflySimSDK ]; then
+        RFLYSIM_SDK=/mnt/c/PX4PSP/RflySimAPIs/RflySimSDK
+    fi
     if [ -d "${RFLYSIM_SDK}" ]; then
         export PYTHONPATH="${PYTHONPATH}:${RFLYSIM_SDK}:${RFLYSIM_SDK}/comm:${RFLYSIM_SDK}/ctrl:${RFLYSIM_SDK}/ue:${RFLYSIM_SDK}/vision:${RFLYSIM_SDK}/phm:${RFLYSIM_SDK}/swarm:${RFLYSIM_SDK}/adb:${RFLYSIM_SDK}/wsl:${RFLYSIM_SDK}/test:${RFLYSIM_SDK}/word"
         echo -e "${GREEN}[OK] Added RflySim SDK to PYTHONPATH${NC}"
@@ -113,7 +146,7 @@ echo ""
 echo -e "${GREEN}[1/11] 启动大模型 LLM [独立 xterm] ...模型加载需要10-30秒${NC}"
 
 xterm $XTERM_OPTS -T "LLM Mission (mission_once)" \
-    -e "bash --login -c '${XTERM_ENV}; source ${WS_DIR}/devel/setup.bash && cd /home/ubuntu/model && python3 mission_once.py 2>&1; echo \"Press Enter to close\"; read; exec bash'" &
+    -e "bash --login -c '${XTERM_ENV}; source ${WS_DIR}/devel/setup.bash && python3 \"${LLM_NODE}\" 2>&1; echo \"Press Enter to close\"; read; exec bash'" &
 LLM_PID=$!
 echo -e "${GREEN}      LLM PID: ${LLM_PID}${NC}"
 
@@ -121,13 +154,18 @@ echo -e "${YELLOW}      等待大模型加载 (10s)...${NC}"
 sleep 10
 
 # =====================================================================
-# 2. 启动 YOLO 目标检测（独立 xterm，模型加载较慢，先启动）
+# 2. 启动所选目标检测器（独立 xterm）
 # =====================================================================
 echo ""
-echo -e "${GREEN}[2/11] 启动 YOLO 目标检测 + 气球颜色分类 [独立 xterm] ...${NC}"
-
-xterm $XTERM_OPTS -T "YOLO Detection" \
-    -e "bash --login -c '${XTERM_ENV}; source ${WS_DIR}/devel/setup.bash && roslaunch object_det detection_color.launch 2>&1; echo \"Press Enter to close\"; read; exec bash'" &
+if [ "${PERCEPTION_BACKEND}" = "fm9g" ]; then
+    echo -e "${GREEN}[2/11] 启动 FM9G 视觉检测 [独立 xterm] ...${NC}"
+    xterm $XTERM_OPTS -T "FM9G Detection" \
+        -e "bash --login -c '${XTERM_ENV}; source ${WS_DIR}/devel/setup.bash && \"${FM9G_PYTHON}\" -u \"${FM9G_NODE}\" --head \"${FM9G_HEAD}\" --score-threshold 0.43 --show-window 2>&1; echo \"Press Enter to close\"; read; exec bash'" &
+else
+    echo -e "${GREEN}[2/11] 启动 YOLO 目标检测 + 气球颜色分类 [独立 xterm] ...${NC}"
+    xterm $XTERM_OPTS -T "YOLO Detection" \
+        -e "bash --login -c '${XTERM_ENV}; source ${WS_DIR}/devel/setup.bash && roslaunch object_det detection_color.launch 2>&1; echo \"Press Enter to close\"; read; exec bash'" &
+fi
 DET_PID=$!
 echo -e "${GREEN}      PID: ${DET_PID}${NC}"
 

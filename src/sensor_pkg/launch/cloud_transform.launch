@@ -1,6 +1,8 @@
 <launch>
   <!-- Cloud transform node: 将深度点云从传感器坐标系转换到 world 坐标系 -->
-  <node pkg="sensor_pkg" type="cloud_transform_node.py" name="cloud_transform_node" output="screen">
+  <node pkg="sensor_pkg" type="cloud_transform_node.py" name="cloud_transform_node"
+        launch-prefix="/opt/conda/envs/demo/bin/python3" output="screen"
+        respawn="true" respawn_delay="2.0">
     <!-- 话题配置 -->
     <param name="odom_topic"  value="/rflysim/uav1/local/odom" />
     <param name="cloud_in"    value="/rflysim/sensor0/Depth_Cloud" />

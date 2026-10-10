@@ -31,6 +31,10 @@ private:
 
     void advanceSearchPhase();
     const char* phaseName() const;
+    void publishSearchCommand(double vx, double vy, double yaw_rate);
+
+    geometry_msgs::Point staging_position_;
+    bool hold_staging_position_{false};
 
     double yaw_rate_{0.35};
     double timeout_{8.0};

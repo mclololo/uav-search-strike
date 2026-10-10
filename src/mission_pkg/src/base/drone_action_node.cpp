@@ -7,6 +7,7 @@
  ******************************************************************************/
 #include "base/drone_action_node.h"
 #include "utils/pose_utils.h"
+#include "utils/strike_motion.h"
 #include <iomanip>
 #include <sstream>
 
@@ -139,6 +140,37 @@ void DroneActionNode::publishPosition(const geometry_msgs::Point& pos, double ya
     cmd.position.y = pos.x;   // NED y = ENU x
     cmd.position.z = pos.z;
     cmd.yaw = yaw + M_PI / 2.0;  // ENU yaw → NED yaw
+    mct->updateCommand(cmd);
+}
+
+void DroneActionNode::publishXYHoldWithYawRate(const geometry_msgs::Point& pos,
+                                             double vz, double yaw_rate) {
+    if (!fcu_odom_ptr || fcu_odom_ptr->header.stamp == ros::Time(0)) {
+        publishVelocityWithYawRate(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
+
+    // Use the same world velocity mapping as the sprint; all position axes are ignored.
+    const auto& current = fcu_odom_ptr->pose.pose.position;
+    const double world_vx = std::clamp(1.5 * (pos.x - current.x), -0.20, 0.20);
+    const double world_vy = std::clamp(1.5 * (pos.y - current.y), -0.20, 0.20);
+    const auto local = StrikeMotion::toMavrosLocal({world_vx, world_vy});
+    resetHoverCapture();
+    mavros_msgs::PositionTarget cmd;
+    cmd.header.stamp = ros::Time::now();
+    cmd.header.frame_id = name();
+    cmd.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
+    cmd.velocity.x = local.x;
+    cmd.velocity.y = local.y;
+    cmd.velocity.z = vz;
+    cmd.yaw_rate = yaw_rate;
+    cmd.type_mask = mavros_msgs::PositionTarget::IGNORE_PX |
+                    mavros_msgs::PositionTarget::IGNORE_PY |
+                    mavros_msgs::PositionTarget::IGNORE_PZ |
+                    mavros_msgs::PositionTarget::IGNORE_YAW |
+                    mavros_msgs::PositionTarget::IGNORE_AFX |
+                    mavros_msgs::PositionTarget::IGNORE_AFY |
+                    mavros_msgs::PositionTarget::IGNORE_AFZ;
     mct->updateCommand(cmd);
 }
 

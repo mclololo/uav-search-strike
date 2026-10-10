@@ -34,5 +34,5 @@ topics:
 
 # 可视化配置
 visualization:
-  show_window: true                           # 显示检测窗口（Docker 容器有桌面，可以正常显示）
+  show_window: true                           # 显示 Detection + Color 识别框窗口
   window_name: "Object Detection"             # 窗口名称

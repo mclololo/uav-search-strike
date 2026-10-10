@@ -45,7 +45,7 @@
       <RetryUntilSuccessful num_attempts="1">
         <Sequence name="AcquireAndHit">
           <!-- 主动旋转扫描，先把目标拉进视野 -->
-          <ScanForTarget object_name="purple_balloon" confidence_threshold="0.6" yaw_rate="0.0" timeout="45.0" center_gate_x_ratio="0.35" center_gate_y_ratio="0.45" stable_frames="1" detection_hold_time="0.0" phase_duration="2.5" lateral_velocity="0.0" backward_velocity="0.0" />
+          <ScanForTarget staging_position="5.3;-2.60;0.70" object_name="purple_balloon" confidence_threshold="0.6" yaw_rate="0.35" timeout="20.0" center_gate_x_ratio="0.35" center_gate_y_ratio="0.45" stable_frames="1" detection_hold_time="0.0" phase_duration="2.5" lateral_velocity="0.0" backward_velocity="0.0" />
 
           <!-- 跟踪并撞击气球 -->
             <Timeout msec="50000">
@@ -59,17 +59,18 @@
 
                 <!-- 视觉伺服：VX+VZ+yaw_rate PD控制 -->
                 <VisualServo
+                  staging_position="5.3;-2.60;0.70"
                     pixel_target="{balloon_pixel}"
-                    k_p_yaw_rate="0.006"
-                    k_d_yaw_rate="0.002"
+                    k_p_yaw_rate="0.004"
+                    k_d_yaw_rate="0.001"
                     k_p_vz="0.015"
                     k_d_vz="0.006"
                     approach_area_threshold="0.035"
-                    forward_velocity="0.35"
+                    forward_velocity="0.9"
                     sprint_velocity="0.85"
                     sprint_time="6.0"
                     sprint_lock_visual_correction="false"
-                    hit_offset_x="-5.0"
+                    hit_offset_x="-20.0"
                     hit_offset_reference_depth="0.80"
                     max_hit_offset_ratio="0.35"
                     corridor_reference_length="5.20"
@@ -96,10 +97,12 @@
                     post_hit_lift_time="0.45"
                     post_hit_lift_timeout="1.0"
                     post_hit_lift_tolerance="0.12"
+                    post_hit_backoff_distance="0.10"
+                    post_hit_backoff_time="1.20"
                     post_hit_escape_yaw="1.5708"
-                    post_hit_escape_velocity="0.18"
-                    post_hit_escape_distance="0.25"
-                    post_hit_escape_time="1.50"
+                    post_hit_escape_velocity="0.0"
+                    post_hit_escape_distance="0.0"
+                    post_hit_escape_time="0.0"
                     post_hit_escape_yaw_rate="0.12"
                     data_timeout="0.50"
                     recovery_delay="0.1"
@@ -108,7 +111,7 @@
                     recovery_yaw_rate="0.5"
                     recovery_total_timeout="3.0"
                     startup_grace_time="1.0"
-                    strike_stable_time="0.15"
+                    strike_stable_time="0.8"
                     sprint_alignment_tolerance_px="24.0"
                     sprint_vertical_alignment_tolerance_px="180.0"
                     sprint_alignment_stable_frames="2"
@@ -136,10 +139,8 @@
       </RetryUntilSuccessful>
       </ForceSuccess>
       <!-- 13. 命中后原方向制动，使用EGO-Planner返回起飞区 -->
-      <PlanningControl goal="0.0;0.0;1.2" use_home_xy="true" control_yaw="true"/>
-      <!-- 15. 在起飞区内规划下降 -->
-      <PlanningControl goal="0.0;0.0;0.5" use_home_xy="true" control_yaw="true"/>
-      <!-- 16. 降落 -->
+      <PlanningControl goal="0.0;0.0;1.4" use_home_xy="true" control_yaw="true" yaw_rate="0.25" final_yaw="0.0" final_yaw_rate="0.25"/>
+      <!-- 到点并转正后直接自动降落 -->
       <Land use_speed="0" />
     </Sequence>
   </BehaviorTree>

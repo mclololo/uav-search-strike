@@ -3,6 +3,7 @@
  * @brief      Corridor-constrained balloon strike controller
  ******************************************************************************/
 #include "nodes/action/visual_servo.h"
+#include "utils/strike_motion.h"
 
 #include "utils/pose_utils.h"
 
@@ -57,6 +58,7 @@ VisualServo::VisualServo(const std::string& name, const NodeConfig& config)
 PortsList VisualServo::providedPorts() {
     return {
         InputPort<PixelTarget>("pixel_target", "像素目标"),
+        InputPort<Position3D>("staging_position", "World search point and strike lateral reference"),
         InputPort<double>("k_p_yaw_rate", 0.004, "偏航角速度P增益"),
         InputPort<double>("k_d_yaw_rate", 0.008, "偏航角速度D增益"),
         InputPort<double>("max_yaw_rate", 0.7, "最大偏航角速度"),
@@ -65,19 +67,11 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("k_d_vz", 0.006, "垂直速度D增益"),
         InputPort<double>("max_vz", 0.3, "最大垂直速度"),
         InputPort<double>("deadzone_vz", 10.0, "垂直死区(pixel)"),
-        InputPort<double>("forward_velocity", 0.35, "常态接近速度"),
+        InputPort<double>("forward_velocity", 0.9, "常态接近速度"),
         InputPort<double>("sprint_velocity", 0.85, "直线冲刺速度"),
         InputPort<double>("sprint_time", 6.0, "冲刺最长时间"),
-        InputPort<double>("sprint_visual_max_yaw_rate", 0.20,
-                          "冲刺期间视觉修正最大偏航速度"),
-        InputPort<double>("sprint_target_lead_time", 0.25,
-                          "冲刺目标横向运动提前量时间"),
-        InputPort<double>("sprint_target_lead_max_px", 40.0,
-                          "冲刺目标横向提前量像素上限"),
-        InputPort<double>("sprint_realign_error_px", 32.0,
-                          "冲刺中重新对准的预测横向误差阈值"),
-        InputPort<int>("sprint_realign_frames", 2,
-                       "冲刺中失准触发重新对准的连续帧数"),
+        InputPort<double>("cross_track_gain", 1.2, "走廊横向位置反馈增益"),
+        InputPort<double>("cross_track_max_velocity", 0.16, "最大横向纠偏速度(m/s)"),
         InputPort<double>("hit_offset_x", 45.0, "侧桨打击像素偏置"),
         InputPort<double>("hit_offset_y", 0.0, "垂直像素偏置"),
         InputPort<double>("hit_offset_reference_depth", 0.80, "像素偏置标定深度"),
@@ -85,7 +79,7 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("approach_area_threshold", 0.035, "进入冲刺的目标面积占比"),
         InputPort<double>("post_hit_success_area_ratio", 0.025, "近距离丢失命中判据"),
         InputPort<double>("center_tolerance", 0.12, "目标对齐容差比例"),
-        InputPort<double>("strike_stable_time", 0.15, "冲刺前稳定跟踪时间"),
+        InputPort<double>("strike_stable_time", 0.8, "就位确认后的连续有效跟踪时间"),
         InputPort<double>("sprint_alignment_tolerance_px", 24.0, "侧桨冲刺前水平对准容差"),
         InputPort<double>("sprint_vertical_alignment_tolerance_px", 160.0, "冲刺前垂直可见范围"),
         InputPort<int>("sprint_alignment_stable_frames", 2, "侧桨冲刺前连续对准帧数"),
@@ -94,8 +88,6 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("sprint_altitude_hold_gain", 1.5, "冲刺高度保持增益"),
         InputPort<double>("sprint_max_vertical_correction", 0.08, "冲刺最大垂直修正速度"),
         InputPort<double>("sprint_target_loss_grace", 1.50, "冲刺中目标丢失后直线续航时间"),
-        InputPort<double>("close_target_loss_grace", 0.30,
-                          "近距离确认目标后的丢失宽限(s)：近距离丢框≈气球已爆，立即判命中撤离"),
         InputPort<double>("data_timeout", 0.30, "目标数据超时"),
         InputPort<double>("startup_grace_time", 1.0, "首帧目标等待宽限"),
 
@@ -146,15 +138,15 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("safety_predict_time", 0.45, "边界预测时间"),
         InputPort<double>("boundary_margin", 0.40, "墙面边界余量"),
         InputPort<double>("brake_speed_threshold", 0.12, "制动完成速度"),
+        InputPort<double>("brake_position_tolerance", 0.20, "制动停车点位置容差"),
         InputPort<double>("brake_hold_time", 0.30, "低速稳定时间"),
         InputPort<double>("brake_timeout", 1.80, "制动告警时间"),
         InputPort<double>("post_hit_settle_time", 0.45, "停稳交接时间"),
-        InputPort<double>("post_hit_verify_time", 1.0, "命中后重新检测气球的悬停时间"),
         InputPort<double>("post_hit_escape_yaw", 0.0, "命中制动时的世界坐标离墙方向"),
         InputPort<double>("post_hit_escape_velocity", 0.18, "命中制动时的离墙速度"),
-        InputPort<double>("post_hit_escape_distance", 0.15, "命中后正前方撤离距离"),
+        InputPort<double>("post_hit_escape_distance", 0.10, "命中制动时的离墙距离"),
         InputPort<double>("post_hit_escape_time", 0.60, "命中制动时的离墙时间上限"),
-        InputPort<double>("post_hit_escape_yaw_rate", 0.60, "命中后转正的最大偏航速度"),
+        InputPort<double>("post_hit_escape_yaw_rate", 0.12, "命中制动时的最大偏航速度"),
         InputPort<double>("recovery_delay", 0.15, "丢失后恢复延迟"),
         InputPort<double>("recovery_yaw_rate", 0.45, "恢复扫描角速度"),
         InputPort<double>("recovery_total_timeout", 3.0, "恢复总超时"),
@@ -175,6 +167,8 @@ PortsList VisualServo::providedPorts() {
         InputPort<double>("post_hit_lift_time", 0.45, "post-hit lift ramp time"),
         InputPort<double>("post_hit_lift_timeout", 1.0, "post-hit lift timeout"),
         InputPort<double>("post_hit_lift_tolerance", 0.12, "post-hit lift tolerance"),
+        InputPort<double>("post_hit_backoff_distance", 0.0, "post-hit reverse distance along the cleared sprint corridor"),
+        InputPort<double>("post_hit_backoff_time", 1.20, "post-hit reverse ramp duration"),
         InputPort<double>("recovery_backoff_velocity", 0.0, "兼容旧XML"),
         InputPort<double>("recovery_backoff_time", 0.0, "兼容旧XML"),
         InputPort<double>("egress_timeout", 0.0, "兼容旧XML"),
@@ -186,6 +180,18 @@ PortsList VisualServo::providedPorts() {
 }
 
 NodeStatus VisualServo::onStart() {
+    has_staging_position_ = false;
+    const auto staging = getInput<Position3D>("staging_position");
+    if (staging) {
+        staging_position_.x = staging.value().x;
+        staging_position_.y = staging.value().y;
+        staging_position_.z = staging.value().z;
+        if (!std::isfinite(staging_position_.x) || !std::isfinite(staging_position_.y) ||
+            !std::isfinite(staging_position_.z)) {
+            return NodeStatus::FAILURE;
+        }
+        has_staging_position_ = true;
+    }
     k_p_yaw_rate_ = getInput<double>("k_p_yaw_rate").value();
     k_d_yaw_rate_ = getInput<double>("k_d_yaw_rate").value();
     max_yaw_rate_ = getInput<double>("max_yaw_rate").value();
@@ -196,18 +202,10 @@ NodeStatus VisualServo::onStart() {
     deadzone_vz_ = getInput<double>("deadzone_vz").value();
     forward_velocity_ = getInput<double>("forward_velocity").value();
     sprint_velocity_ = getInput<double>("sprint_velocity").value();
+    cross_track_gain_ = std::max(0.0, getInput<double>("cross_track_gain").value());
+    cross_track_max_velocity_ = std::max(0.0, getInput<double>("cross_track_max_velocity").value());
     sprint_time_ = getInput<double>("sprint_time").value();
     sprint_lock_visual_correction_ = getInput<bool>("sprint_lock_visual_correction").value();
-    sprint_visual_max_yaw_rate_ = std::max(
-        0.0, getInput<double>("sprint_visual_max_yaw_rate").value());
-    sprint_target_lead_time_ = std::clamp(
-        getInput<double>("sprint_target_lead_time").value(), 0.0, 0.50);
-    sprint_target_lead_max_px_ = std::max(
-        0.0, getInput<double>("sprint_target_lead_max_px").value());
-    sprint_realign_error_px_ = std::max(
-        sprint_alignment_tolerance_px_, getInput<double>("sprint_realign_error_px").value());
-    sprint_realign_frames_ = std::max(
-        1, getInput<int>("sprint_realign_frames").value());
     hit_offset_x_ = getInput<double>("hit_offset_x").value();
     hit_offset_y_ = getInput<double>("hit_offset_y").value();
     hit_offset_reference_depth_ = getInput<double>("hit_offset_reference_depth").value();
@@ -215,7 +213,7 @@ NodeStatus VisualServo::onStart() {
     approach_area_threshold_ = getInput<double>("approach_area_threshold").value();
     post_hit_success_area_ratio_ = getInput<double>("post_hit_success_area_ratio").value();
     center_tolerance_ = getInput<double>("center_tolerance").value();
-    strike_stable_time_ = getInput<double>("strike_stable_time").value();
+    strike_stable_time_ = positiveOr(getInput<double>("strike_stable_time").value(), 0.8);
     sprint_alignment_tolerance_px_ = std::max(
         1.0, getInput<double>("sprint_alignment_tolerance_px").value());
     sprint_vertical_alignment_tolerance_px_ = std::max(
@@ -231,8 +229,6 @@ NodeStatus VisualServo::onStart() {
     sprint_max_vertical_correction_ = std::max(
         0.0, getInput<double>("sprint_max_vertical_correction").value());
     sprint_target_loss_grace_ = getInput<double>("sprint_target_loss_grace").value();
-    close_target_loss_grace_ = std::max(
-        0.05, getInput<double>("close_target_loss_grace").value());
     data_timeout_ = getInput<double>("data_timeout").value();
     startup_grace_time_ = getInput<double>("startup_grace_time").value();
     max_alignment_yaw_deviation_ = std::max(
@@ -294,6 +290,8 @@ NodeStatus VisualServo::onStart() {
     safety_predict_time_ = getInput<double>("safety_predict_time").value();
     boundary_margin_ = getInput<double>("boundary_margin").value();
     brake_speed_threshold_ = getInput<double>("brake_speed_threshold").value();
+    brake_position_tolerance_ = std::max(
+        0.05, getInput<double>("brake_position_tolerance").value());
     brake_hold_time_ = getInput<double>("brake_hold_time").value();
     brake_timeout_ = getInput<double>("brake_timeout").value();
     post_hit_lift_height_ = std::max(
@@ -304,9 +302,11 @@ NodeStatus VisualServo::onStart() {
         post_hit_lift_time_, getInput<double>("post_hit_lift_timeout").value());
     post_hit_lift_tolerance_ = std::max(
         0.01, getInput<double>("post_hit_lift_tolerance").value());
+    post_hit_backoff_distance_ = std::max(
+        0.0, getInput<double>("post_hit_backoff_distance").value());
+    post_hit_backoff_time_ = std::max(
+        0.30, getInput<double>("post_hit_backoff_time").value());
     post_hit_settle_time_ = getInput<double>("post_hit_settle_time").value();
-    post_hit_verify_time_ = std::max(
-        0.0, getInput<double>("post_hit_verify_time").value());
     post_hit_escape_yaw_ = normalizeYaw(getInput<double>("post_hit_escape_yaw").value());
     post_hit_escape_velocity_ = std::max(
         0.0, getInput<double>("post_hit_escape_velocity").value());
@@ -327,25 +327,24 @@ NodeStatus VisualServo::onStart() {
     const double hfov_rad = std::clamp(rgb_hfov_deg_, 1.0, 179.0) * M_PI / 180.0;
     rgb_focal_px_ = 0.5 * img_w_ / std::tan(0.5 * hfov_rad);
 
-    // Visibility alone is not enough to start a strike. Align the propeller
-    // strike point explicitly before allowing the sprint.
-    state_ = ServoState::ALIGN;
+    state_ = ServoState::APPROACHING;
     brake_outcome_ = BrakeOutcome::ABORT;
+    corridor_active_ = false;
+    brake_escape_pending_ = false;
     has_ever_received_data_ = false;
     close_target_seen_ = false;
-    last_close_target_in_strike_band_ = false;
-    last_target_measurement_stamp_ = 0.0;
-    last_target_center_x_ = 0.0;
-    target_x_velocity_px_s_ = 0.0;
+    // VisualServo is started only after PlanningControl/GoTo reaches the search point.
+    // Keep the depth switch local to the strike phase; it does not disable EGO-Planner's
+    // /cloud_registered obstacle input while navigating to the search point.
+    setDepthAssistActive(false);
     max_area_ratio_ = 0.0;
     align_stable_frames_ = 0;
     prev_err_x_ = 0.0;
     prev_err_y_ = 0.0;
     node_start_time_ = state_start_time_ = prev_time_ = ros::Time::now();
     stable_track_start_ = ros::Time(0);
+    strike_position_reached_ = false;
     brake_hold_start_ = ros::Time(0);
-    escape_turn_start_time_ = ros::Time(0);
-    escape_turn_command_time_ = ros::Time(0);
     lift_start_time_ = ros::Time(0);
     wait_last_target_time_ = ros::Time(0);
     post_hit_lift_completed_ = false;
@@ -399,12 +398,6 @@ NodeStatus VisualServo::onRunning() {
     switch (state_) {
         case ServoState::BRAKING:
             return executeBrake();
-        case ServoState::POST_HIT_VERIFY:
-            return executePostHitVerify();
-        case ServoState::FLY_AWAY_TURN:
-            return executeFlyAwayTurn();
-        case ServoState::FLY_AWAY:
-            return executeFlyAway();
         case ServoState::ENTERING_WAIT:
             return executeWaitEntry();
         case ServoState::WAITING:
@@ -417,7 +410,7 @@ NodeStatus VisualServo::onRunning() {
             PixelTarget recovered_target;
             double recovered_age;
             if (getTargetSnapshot(recovered_target, recovered_age)) {
-                state_ = ServoState::ALIGN;
+                state_ = ServoState::APPROACHING;
                 state_start_time_ = ros::Time::now();
                 align_stable_frames_ = 0;
                 stable_track_start_ = ros::Time(0);
@@ -439,9 +432,10 @@ NodeStatus VisualServo::onRunning() {
     double target_age = std::numeric_limits<double>::infinity();
     if (!getTargetSnapshot(target, target_age)) {
         if (state_ == ServoState::SPRINTING) {
-            return executeSprint(false, target_age, 0.0, headingHoldYawRate(), 0.0);
+            return executeSprint(false, target_age, 0.0, headingHoldYawRate());
         }
-        publishVelocityWithYawRate(0, 0, 0, headingHoldYawRate());
+        stable_track_start_ = ros::Time(0);
+        publishStagingHold(0, headingHoldYawRate());
         const double elapsed = (now - node_start_time_).toSec();
         if (elapsed < startup_grace_time_ || target_age < recovery_delay_) {
             return NodeStatus::RUNNING;
@@ -455,92 +449,65 @@ NodeStatus VisualServo::onRunning() {
 
     const double desired_center_x = desiredHitCenterX();
     const double err_x = target.center_x - desired_center_x;
-    const double lead_px = state_ == ServoState::SPRINTING
-        ? std::clamp(target_x_velocity_px_s_ * sprint_target_lead_time_,
-                     -sprint_target_lead_max_px_, sprint_target_lead_max_px_)
-        : 0.0;
-    const double control_err_x = err_x + lead_px;
     const double err_y = target.center_y - (img_cy_ + hit_offset_y_);
-    const double yaw_rate = computeYawRate(control_err_x, dt);
+    const double yaw_rate = computeYawRate(err_x, dt);
     const double alignment_yaw_rate = alignmentYawRate(yaw_rate);
     const double vz = computeVz(err_y, dt);
 
     switch (state_) {
         case ServoState::ALIGN: {
-            const double altitude = fcu_odom_ptr->pose.pose.position.z;
-            const double altitude_error = std::abs(altitude - strike_altitude_);
-            const double vertical_speed = std::abs(fcu_odom_ptr->twist.twist.linear.z);
-            const bool aligned = !target.extrapolated &&
-                std::abs(err_x) <= sprint_alignment_tolerance_px_ &&
-                std::abs(err_y) <= sprint_vertical_alignment_tolerance_px_ &&
-                altitude_error <= sprint_altitude_tolerance_ &&
-                vertical_speed <= sprint_vertical_speed_tolerance_;
-            const double altitude_hold_vz = sprint_altitude_hold_gain_ *
-                (strike_altitude_ - altitude);
-            const double align_vz = std::clamp(0.5 * vz + altitude_hold_vz,
-                                               -sprint_max_vertical_correction_,
-                                               sprint_max_vertical_correction_);
-            publishGuardedVelocity(0, 0, align_vz, alignment_yaw_rate, 0.0, false);
-            if (aligned) {
+            publishStagingHold(vz, alignment_yaw_rate);
+            if (isCentered(target, desired_center_x)) {
                 ++align_stable_frames_;
-                if (stable_track_start_.isZero()) stable_track_start_ = now;
-                if (align_stable_frames_ >= sprint_alignment_stable_frames_ &&
-                    (now - stable_track_start_).toSec() >= strike_stable_time_) {
-                    enterSprint(now);
+                if (align_stable_frames_ >= kAlignStableFrames) {
+                    state_ = ServoState::APPROACHING;
+                    state_start_time_ = now;
                     align_stable_frames_ = 0;
-                    stable_track_start_ = ros::Time(0);
-                    publishDebugEvent("strike_state", "ALIGN -> SPRINTING");
+                    publishDebugEvent("strike_state", "ALIGN -> SIDE ALIGN");
                 }
             } else {
                 align_stable_frames_ = 0;
-                stable_track_start_ = ros::Time(0);
             }
-            ROS_INFO_THROTTLE(0.5,
-                              "[%s]: Align err=(%.1f,%.1f) z_err=%.3f vz=%.3f stable=%d/%d real=%d",
-                              name().c_str(), err_x, err_y, altitude_error, vertical_speed,
-                              align_stable_frames_, sprint_alignment_stable_frames_,
-                              !target.extrapolated);
             break;
         }
 
         case ServoState::DESCENDING: {
             const double altitude = fcu_odom_ptr->pose.pose.position.z;
-            if (altitude <= strike_altitude_ + descent_tolerance_) {
-                state_ = ServoState::ALIGN;
-                align_stable_frames_ = 0;
-                stable_track_start_ = ros::Time(0);
-                publishDebugEvent("strike_state", "DESCENDING -> ALIGN");
+            if (altitude > strike_altitude_ + descent_tolerance_) {
+                if ((now - state_start_time_).toSec() >= descent_timeout_) {
+                    return startBrake(BrakeOutcome::ABORT, "descent timeout");
+                }
+                publishStagingHold(-std::abs(descent_velocity_), alignment_yaw_rate);
                 break;
             }
-            if ((now - state_start_time_).toSec() >= descent_timeout_) {
-                return startBrake(BrakeOutcome::ABORT, "descent timeout");
-            }
-            publishGuardedVelocity(0, 0, -std::abs(descent_velocity_),
-                                   alignment_yaw_rate, 0.0, false);
-            break;
+            state_ = ServoState::APPROACHING;
+            state_start_time_ = now;
+            stable_track_start_ = ros::Time(0);
         }
+        [[fallthrough]];
 
         case ServoState::APPROACHING: {
             const double altitude = fcu_odom_ptr->pose.pose.position.z;
-            if (altitude > strike_altitude_ + descent_tolerance_) {
-                state_ = ServoState::DESCENDING;
-                state_start_time_ = now;
-                publishGuardedVelocity(0, 0, -std::abs(descent_velocity_),
-                                       alignment_yaw_rate, 0.0, false);
-                publishDebugEvent("strike_state", "APPROACHING -> DESCENDING");
-                break;
+            const double hold_vz = altitude > strike_altitude_ + descent_tolerance_
+                ? -std::abs(descent_velocity_)
+                : std::clamp(sprint_altitude_hold_gain_ * (strike_altitude_ - altitude),
+                             -sprint_max_vertical_correction_, sprint_max_vertical_correction_);
+            // Keep returning to the corridor heading while tracking, without a yaw gate.
+            publishStagingHold(hold_vz, sprint_lock_visual_correction_
+                ? headingHoldYawRate() : alignment_yaw_rate);
+            if (readyForSprint(now)) {
+                enterSprint(now);
+                return executeSprint(true, target_age, area_ratio, yaw_rate);
             }
-
-            state_ = ServoState::ALIGN;
-            align_stable_frames_ = 0;
-            stable_track_start_ = ros::Time(0);
-            publishDebugEvent("strike_state", "APPROACHING -> ALIGN");
+            if (!strike_position_reached_ &&
+                (now - state_start_time_).toSec() >= descent_timeout_) {
+                return startBrake(BrakeOutcome::ABORT, "strike staging timeout");
+            }
             break;
         }
 
         case ServoState::SPRINTING: {
-            return executeSprint(true, target_age, area_ratio, alignment_yaw_rate,
-                                 control_err_x);
+            return executeSprint(true, target_age, area_ratio, yaw_rate);
         }
 
         default:
@@ -549,43 +516,72 @@ NodeStatus VisualServo::onRunning() {
     return NodeStatus::RUNNING;
 }
 
+void VisualServo::onHalted() {
+    stable_track_start_ = ros::Time(0);
+    strike_position_reached_ = false;
+    setDepthAssistActive(false);
+    DroneActionNode::onHalted();
+}
+
+bool VisualServo::atStagingXY() const {
+    if (!has_staging_position_) return true;
+    const auto& position = fcu_odom_ptr->pose.pose.position;
+    return std::hypot(position.x - staging_position_.x,
+                      position.y - staging_position_.y) <= 0.10;
+}
+
+bool VisualServo::readyForSprint(const ros::Time& now) {
+    // Re-check the complete sprint start pose on every tick. The aircraft can drift
+    // while the target is being held for strike_stable_time_, so a one-time arrival
+    // latch is not sufficient to guarantee that the sprint starts from the staging
+    // point and along the configured corridor heading.
+    const double altitude = fcu_odom_ptr->pose.pose.position.z;
+    const bool position_ready =
+        atStagingXY() &&
+        std::abs(altitude - strike_altitude_) <= sprint_altitude_tolerance_;
+    const double yaw = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
+    const bool heading_ready =
+        std::abs(normalizeYaw(yaw - route_yaw_)) <= max_alignment_yaw_deviation_;
+    if (!position_ready || !heading_ready) {
+        strike_position_reached_ = false;
+        stable_track_start_ = ros::Time(0);
+        return false;
+    }
+    strike_position_reached_ = true;
+
+    // Start tracking immediately on arrival. Use the current tracker output so an
+    // INVALID result cannot be hidden by the servo's cached-target grace period.
+    const auto tracked = getInput<PixelTarget>("pixel_target");
+    if (!tracked || !tracked.value().is_detected ||
+        !std::isfinite(tracked.value().timestamp) || tracked.value().timestamp <= 0.0 ||
+        now.toSec() < tracked.value().timestamp ||
+        now.toSec() - tracked.value().timestamp > data_timeout_) {
+        stable_track_start_ = ros::Time(0);
+        return false;
+    }
+    if (stable_track_start_.isZero() || now < stable_track_start_) {
+        stable_track_start_ = now;
+    }
+    return (now - stable_track_start_).toSec() >= strike_stable_time_;
+}
+
+void VisualServo::publishStagingHold(double vz, double yaw_rate) {
+    if (!has_staging_position_) {
+        publishGuardedVelocity(0, 0, vz, yaw_rate, 0.0, false);
+        return;
+    }
+    const double altitude = fcu_odom_ptr->pose.pose.position.z;
+    if (altitude < min_attack_altitude_) {
+        vz = std::abs(altitude_recovery_speed_);
+    } else if (altitude <= min_attack_altitude_ + altitude_guard_margin_ && vz < 0.0) {
+        vz = 0.0;
+    }
+    publishXYHoldWithYawRate(staging_position_, vz, yaw_rate);
+}
+
 void VisualServo::updateTargetData() {
     auto result = getInput<PixelTarget>("pixel_target");
     if (!result || !result.value().is_detected) return;
-    // KF 外推帧不是真实检测，不能刷新最后有效检测时刻；否则对准阶段
-    // 会永远等待一帧虚构目标，冲刺阶段也会把丢框误当作仍在接近。
-    if (result.value().extrapolated) return;
-    const PixelTarget& detected = result.value();
-    const double measurement_stamp = detected.timestamp > 0.0
-        ? detected.timestamp : ros::Time::now().toSec();
-    if (measurement_stamp > last_target_measurement_stamp_) {
-        if (last_target_measurement_stamp_ > 0.0) {
-            const double dt = measurement_stamp - last_target_measurement_stamp_;
-            if (dt >= 0.02 && dt <= 0.50) {
-                const double raw_velocity = std::clamp(
-                    (detected.center_x - last_target_center_x_) / dt, -800.0, 800.0);
-                target_x_velocity_px_s_ = 0.65 * target_x_velocity_px_s_ +
-                                          0.35 * raw_velocity;
-            }
-        }
-        last_target_measurement_stamp_ = measurement_stamp;
-        last_target_center_x_ = detected.center_x;
-    }
-    if (state_ == ServoState::SPRINTING) {
-        const double image_area = static_cast<double>(img_w_) * img_h_;
-        const bool close = detected.area() / image_area >=
-            std::max(approach_area_threshold_, post_hit_success_area_ratio_);
-        if (close) {
-            const double horizontal_band = std::max(
-                sprint_alignment_tolerance_px_,
-                0.35 * std::max(detected.width, detected.height));
-            const double vertical_band = std::max(
-                30.0, 0.25 * std::max(detected.width, detected.height));
-            last_close_target_in_strike_band_ =
-                std::abs(detected.center_x - desiredHitCenterX()) <= horizontal_band &&
-                std::abs(detected.center_y - (img_cy_ + hit_offset_y_)) <= vertical_band;
-        }
-    }
     std::lock_guard<std::mutex> lock(target_mutex_);
     last_target_ = result.value();
     last_valid_detection_time_ = ros::Time::now();
@@ -662,8 +658,7 @@ double VisualServo::headingHoldYawRate() const {
 }
 
 double VisualServo::currentSpeed() const {
-    const auto& velocity = fcu_odom_ptr->twist.twist.linear;
-    return std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z);
+    return mct->getMeasuredSpeed();
 }
 
 double VisualServo::boundaryClearance() const {
@@ -691,7 +686,7 @@ double VisualServo::remainingSprintDistance() const {
 }
 
 void VisualServo::depthCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& msg) {
-    if (!msg || msg->data.empty()) return;
+    if (!depth_assist_active_.load() || !msg || msg->data.empty()) return;
 
     PixelTarget target;
     ros::Time target_time;
@@ -794,6 +789,7 @@ void VisualServo::depthCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& m
             (lateral_sign * positiveOr(rgb_focal_px_, 320.0));
     }
 
+    if (!depth_assist_active_.load()) return;
     std::lock_guard<std::mutex> lock(depth_mutex_);
     if (std::isfinite(balloon_depth)) {
         if (std::isfinite(previous_target_depth_) &&
@@ -823,6 +819,25 @@ void VisualServo::depthCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& m
     hard_corridor_points_ = hard_points;
 }
 
+void VisualServo::setDepthAssistActive(bool active) {
+    depth_assist_active_.store(false);
+    {
+        std::lock_guard<std::mutex> lock(depth_mutex_);
+        depth_frame_valid_ = false;
+        depth_cloud_time_ = ros::Time(0);
+        hard_front_clearance_ = std::numeric_limits<double>::infinity();
+        target_depth_ = std::numeric_limits<double>::infinity();
+        target_lateral_ = std::numeric_limits<double>::infinity();
+        target_closing_speed_ = 0.0;
+        previous_target_depth_ = std::numeric_limits<double>::infinity();
+        previous_target_depth_time_ = ros::Time(0);
+        hard_corridor_points_ = 0;
+    }
+    depth_assist_active_.store(active);
+    publishDebugEvent("strike_depth", active ? "wait-zone assist enabled"
+                                               : "strike assist disabled");
+}
+
 bool VisualServo::getDepthSnapshot(double& hard_clearance, double& target_depth) const {
     double target_lateral;
     double target_closing_speed;
@@ -833,6 +848,13 @@ bool VisualServo::getDepthSnapshot(double& hard_clearance, double& target_depth)
 bool VisualServo::getDepthSnapshot(double& hard_clearance, double& target_depth,
                                    double& target_lateral,
                                    double& target_closing_speed) const {
+    if (!depth_assist_active_.load()) {
+        hard_clearance = std::numeric_limits<double>::infinity();
+        target_depth = std::numeric_limits<double>::infinity();
+        target_lateral = std::numeric_limits<double>::infinity();
+        target_closing_speed = 0.0;
+        return false;
+    }
     std::lock_guard<std::mutex> lock(depth_mutex_);
     hard_clearance = hard_front_clearance_;
     target_depth = target_depth_;
@@ -884,6 +906,7 @@ bool VisualServo::targetInSprintZone(const PixelTarget& target, double area_rati
 }
 
 bool VisualServo::emergencyObstacleDetected() const {
+    if (!depth_assist_active_.load()) return false;
     std::lock_guard<std::mutex> lock(depth_mutex_);
     return depth_frame_valid_ &&
            (ros::Time::now() - depth_cloud_time_).toSec() <= depth_timeout_ &&
@@ -897,10 +920,15 @@ bool VisualServo::boundaryCommandSafe(double vx_body, double vy_body) const {
         return true;
     }
 
-    const auto& position = fcu_odom_ptr->pose.pose.position;
     const double yaw = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
     const double vx_world = std::cos(yaw) * vx_body + std::sin(yaw) * vy_body;
     const double vy_world = std::sin(yaw) * vx_body - std::cos(yaw) * vy_body;
+    return boundaryWorldCommandSafe(vx_world, vy_world);
+}
+
+bool VisualServo::boundaryWorldCommandSafe(double vx_world, double vy_world) const {
+    if (std::hypot(vx_world, vy_world) < 1e-3) return true;
+    const auto& position = fcu_odom_ptr->pose.pose.position;
     const double predicted_x = position.x + vx_world * safety_predict_time_;
     const double predicted_y = position.y + vy_world * safety_predict_time_;
     const auto motionSafeOnAxis = [](double current, double predicted,
@@ -935,8 +963,8 @@ bool VisualServo::publishGuardedVelocity(double vx, double vy, double vz, double
         return false;
     }
     if (require_depth) {
-        double hard_clearance = std::numeric_limits<double>::infinity();
-        double target_depth = std::numeric_limits<double>::infinity();
+        double hard_clearance;
+        double target_depth;
         if (!getDepthSnapshot(hard_clearance, target_depth)) {
             publishVelocityWithYawRate(0, 0, std::max(vz, 0.0), headingHoldYawRate());
             ROS_ERROR_THROTTLE(0.5, "[%s]: Depth unavailable; horizontal motion inhibited", name().c_str());
@@ -953,53 +981,84 @@ bool VisualServo::publishGuardedVelocity(double vx, double vy, double vz, double
 
 void VisualServo::publishWorldVelocityWithYawRate(double vx_world, double vy_world,
                                                   double vz, double yaw_rate) {
-    const double current_yaw = PoseUtils::getYawFromQuat(
-        fcu_odom_ptr->pose.pose.orientation);
-    // 世界 ENU 速度 -> 机体系。本桥接的 FRAME_BODY_NED 实际按 FLU（x前/y左/z上）
-    // 生效：z 上正、yaw_rate 为 ENU 符号均已实测验证（若为真 NED，sprint 高度保持
-    // 会反向爬升、航向保持会发散）。y 轴必须取机体"左向"投影；曾按 FRD 的
-    // y-右约定书写，导致横向逃逸方向镜像（C 区离墙逃逸实际冲墙）。
-    const double body_vx = std::cos(current_yaw) * vx_world +
-                           std::sin(current_yaw) * vy_world;
-    const double body_vy = -std::sin(current_yaw) * vx_world +
-                           std::cos(current_yaw) * vy_world;
-    publishVelocityWithYawRate(body_vx, body_vy, vz, yaw_rate);
+    resetHoverCapture();
+    const auto local = StrikeMotion::toMavrosLocal({vx_world, vy_world});
+    mavros_msgs::PositionTarget cmd;
+    cmd.header.stamp = ros::Time::now();
+    cmd.header.frame_id = name();
+    cmd.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
+    cmd.velocity.x = local.x;
+    cmd.velocity.y = local.y;
+    cmd.velocity.z = vz;
+    cmd.yaw_rate = yaw_rate;
+    cmd.type_mask = mavros_msgs::PositionTarget::IGNORE_PX |
+                    mavros_msgs::PositionTarget::IGNORE_PY |
+                    mavros_msgs::PositionTarget::IGNORE_PZ |
+                    mavros_msgs::PositionTarget::IGNORE_YAW |
+                    mavros_msgs::PositionTarget::IGNORE_AFX |
+                    mavros_msgs::PositionTarget::IGNORE_AFY |
+                    mavros_msgs::PositionTarget::IGNORE_AFZ;
+    mct->updateCommand(cmd);
 }
 
 NodeStatus VisualServo::startBrake(BrakeOutcome outcome, const std::string& reason) {
-    const ServoState prev_state = state_;
     brake_outcome_ = outcome;
     finish_reason_ = reason;
     state_ = ServoState::BRAKING;
     state_start_time_ = ros::Time::now();
     brake_hold_start_ = ros::Time(0);
     brake_origin_ = fcu_odom_ptr->pose.pose.position;
-    if (outcome == BrakeOutcome::HIT) {
-        // 命中后先悬停确认一秒。只有确认期间未收到新的真实检测帧，
-        // 才开始返航逃逸；若又检测到气球，则重新对准并继续打击。
-        //
-        // 弧线初始前向速度取"指令值"而非 odom twist 反馈：
-        // 1) RflySim 速度反馈滞后大，命中瞬间实测可能接近 0（v_fwd0=-0.00）；
-        // 2) MAVROS odom 的 twist 是机体系(child_frame_id=base_link)，直接按
-        //    世界系投影会把机体系前向速度 (0.85,0) 算成 0，还会把 (0.85,0)
-        //    误当世界系向东发布，把无人机推向 x 边界（实测越界 0.57m）。
-        // 冲刺命中时动量就是 sprint_velocity_；等待区命中时悬停动量为 0。
-        arc_start_pos_ = brake_origin_;
-        arc_start_time_ = state_start_time_;
-        arc_target_z_ = brake_origin_.z + post_hit_lift_height_;
-        arc_v0_fwd_ = (prev_state == ServoState::SPRINTING) ? sprint_velocity_ : 0.0;
-        post_hit_lift_completed_ = false;
-        state_ = ServoState::POST_HIT_VERIFY;
-        sendHoverCommand();
-        publishDebugEvent("strike_state", "POST_HIT_VERIFY started");
+    brake_escape_pending_ = outcome == BrakeOutcome::HIT &&
+        post_hit_escape_velocity_ > 0.0 && post_hit_escape_distance_ > 0.0 &&
+        post_hit_escape_time_ > 0.0;
+    if (brake_escape_pending_) {
+        const double current_yaw = PoseUtils::getYawFromQuat(
+            fcu_odom_ptr->pose.pose.orientation);
+        const double escape_yaw_rate = std::clamp(
+            normalizeYaw(post_hit_escape_yaw_ - current_yaw),
+            -post_hit_escape_yaw_rate_, post_hit_escape_yaw_rate_);
+        publishWorldVelocityWithYawRate(
+            post_hit_escape_velocity_ * std::cos(post_hit_escape_yaw_),
+            post_hit_escape_velocity_ * std::sin(post_hit_escape_yaw_),
+            0.0, escape_yaw_rate);
+    } else if (corridor_active_) {
+        const double altitude = fcu_odom_ptr->pose.pose.position.z;
+        const double vz = altitude < min_attack_altitude_
+            ? std::abs(altitude_recovery_speed_) : 0.0;
+        publishBrakeCommand(vz);
     } else {
-        publishVelocityWithYawRate(0, 0, 0, headingHoldYawRate());
+        publishWorldVelocityWithYawRate(0, 0, 0, 0);
     }
     publishDebugEvent("strike_brake", reason);
-    ROS_WARN("[%s]: BRAKE outcome=%d reason=%s progress=%.2f remaining=%.2f v_fwd0=%.2f",
+    ROS_WARN("[%s]: BRAKE outcome=%d reason=%s progress=%.2f remaining=%.2f target=(%.2f,%.2f)",
              name().c_str(), static_cast<int>(outcome), reason.c_str(),
-             corridorProgress(corridor_origin_), remainingSprintDistance(), arc_v0_fwd_);
+             corridorProgress(corridor_origin_), remainingSprintDistance(),
+             brake_origin_.x, brake_origin_.y);
     return NodeStatus::RUNNING;
+}
+
+void VisualServo::publishBrakeCommand(double vertical_speed) {
+    const auto target = StrikeMotion::projectToCorridor(
+        brake_origin_.x, brake_origin_.y,
+        corridor_lateral_reference_.x, corridor_lateral_reference_.y, route_yaw_);
+    const double altitude = fcu_odom_ptr->pose.pose.position.z;
+    mavros_msgs::PositionTarget command;
+    command.header.stamp = ros::Time::now();
+    command.header.frame_id = name();
+    command.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
+    command.type_mask = mavros_msgs::PositionTarget::IGNORE_AFX |
+                        mavros_msgs::PositionTarget::IGNORE_AFY |
+                        mavros_msgs::PositionTarget::IGNORE_AFZ |
+                        mavros_msgs::PositionTarget::IGNORE_YAW_RATE;
+    command.position.x = -target.y;
+    command.position.y = target.x;
+    command.position.z = std::max(altitude, min_attack_altitude_);
+    command.velocity.x = 0.0;
+    command.velocity.y = 0.0;
+    command.velocity.z = vertical_speed;
+    command.yaw = route_yaw_ + M_PI / 2.0;
+    resetHoverCapture();
+    mct->updateCommand(command);
 }
 
 void VisualServo::enterSprint(const ros::Time& now) {
@@ -1008,14 +1067,32 @@ void VisualServo::enterSprint(const ros::Time& now) {
     // that corridor or a long sprint can drift into a frame post or wall.
     const double current_yaw = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
     corridor_origin_ = fcu_odom_ptr->pose.pose.position;
+    corridor_active_ = true;
+    // Longitudinal limits keep their actual-start semantics; the lateral line is repeatable.
+    corridor_lateral_reference_ = has_staging_position_ ? staging_position_ : corridor_origin_;
     corridor_limit_distance_ = corridor_reference_length_ * sprint_limit_ratio_;
+    // The wait point must fit inside the airframe clearance, rather than allowing
+    // a ratio-based endpoint to put the aircraft centre only 0.2 m from the wall.
+    const auto limit_axis = [this](double value, double direction,
+                                   double minimum, double maximum) {
+        if (direction > 1e-6) {
+            corridor_limit_distance_ = std::min(corridor_limit_distance_,
+                std::max(0.0, (maximum - value) / direction));
+        } else if (direction < -1e-6) {
+            corridor_limit_distance_ = std::min(corridor_limit_distance_,
+                std::max(0.0, (minimum - value) / direction));
+        }
+    };
+    limit_axis(corridor_origin_.x, std::cos(route_yaw_),
+               boundary_x_min_ + boundary_margin_, boundary_x_max_ - boundary_margin_);
+    limit_axis(corridor_origin_.y, std::sin(route_yaw_),
+               boundary_y_min_ + boundary_margin_, boundary_y_max_ - boundary_margin_);
     wait_entry_distance_ = corridor_reference_length_ *
         (1.0 - sprint_limit_ratio_) * wait_entry_ratio_;
     state_ = ServoState::SPRINTING;
     state_start_time_ = now;
     close_target_seen_ = false;
-    last_close_target_in_strike_band_ = false;
-    sprint_realign_bad_frames_ = 0;
+    setDepthAssistActive(false);
     publishDebugEvent("strike_state", "APPROACHING -> SPRINTING");
     ROS_INFO("[%s]: Straight sprint started: corridor_yaw=%.2f current_yaw=%.2f max_distance=%.2fm z=%.2f vz=%.2f",
              name().c_str(), route_yaw_, current_yaw, corridor_limit_distance_,
@@ -1024,46 +1101,16 @@ void VisualServo::enterSprint(const ros::Time& now) {
 }
 
 NodeStatus VisualServo::executeSprint(bool target_visible, double target_age,
-                                      double area_ratio, double visual_yaw_rate,
-                                      double predicted_error_px) {
-    // 分级丢失宽限：近距离确认过目标后，丢框≈气球已爆裂，
-    // 用短宽限立即判命中并撤离；未近距离时保持原有长宽限防检测抖动误判。
-    // 宽限判定放在 target_visible 分支之外：stale 数据(age<=data_timeout)期间
-    // 同样要计时，否则命中确认会再被拖慢 data_timeout_。
-    const double effective_grace = close_target_seen_
-        ? std::min(sprint_target_loss_grace_, close_target_loss_grace_)
-        : sprint_target_loss_grace_;
+                                      double area_ratio, double visual_yaw_rate) {
+    (void)visual_yaw_rate;  // Sprint heading is fixed to the configured corridor.
     if (target_visible) {
         const double close_area = std::max(approach_area_threshold_,
                                            post_hit_success_area_ratio_);
         close_target_seen_ = close_target_seen_ || area_ratio >= close_area;
-    }
-    if (target_age > effective_grace) {
-        const bool confirmed_hit = close_target_seen_ && last_close_target_in_strike_band_;
-        return startBrake(confirmed_hit ? BrakeOutcome::HIT : BrakeOutcome::MISS_TO_WAIT,
-                          confirmed_hit ? "close target disappeared in strike band"
-                                        : "target lost outside strike band");
-    }
-
-    // 气球在冲刺时横向偏离预测打击带，不能继续“追着转向并前冲”。连续
-    // 两帧失准便悬停回到 ALIGN，重新稳定对准后再冲刺，避免擦边掠过。
-    if (target_visible && target_age <= 0.12 &&
-        std::abs(predicted_error_px) > sprint_realign_error_px_) {
-        ++sprint_realign_bad_frames_;
-        if (sprint_realign_bad_frames_ >= sprint_realign_frames_) {
-            state_ = ServoState::ALIGN;
-            state_start_time_ = ros::Time::now();
-            align_stable_frames_ = 0;
-            stable_track_start_ = ros::Time(0);
-            sprint_realign_bad_frames_ = 0;
-            sendHoverCommand();
-            publishDebugEvent("strike_state", "SPRINTING -> ALIGN (target lateral drift)");
-            ROS_WARN("[%s]: Sprint paused for realignment, predicted_err=%.1f px",
-                     name().c_str(), predicted_error_px);
-            return NodeStatus::RUNNING;
-        }
-    } else {
-        sprint_realign_bad_frames_ = 0;
+    } else if (target_age > sprint_target_loss_grace_) {
+        ROS_WARN_THROTTLE(0.5,
+                          "[%s]: Target lost during sprint; continuing to wait zone (close=%d)",
+                          name().c_str(), close_target_seen_);
     }
 
     if ((ros::Time::now() - state_start_time_).toSec() >= sprint_time_) {
@@ -1074,15 +1121,21 @@ NodeStatus VisualServo::executeSprint(bool target_visible, double target_age,
     // distance for at least the commanded speed so inertia cannot carry the aircraft into
     // the end wall after a miss.
     const double stop_distance = stoppingDistance(std::max(currentSpeed(), sprint_velocity_));
-    if (remainingSprintDistance() <= stop_distance + 0.08) {
+    const double braking_reserve = std::max(0.15, 0.5 * boundary_margin_);
+    if (remainingSprintDistance() <= stop_distance + braking_reserve + 0.08) {
         return startBrake(BrakeOutcome::MISS_TO_WAIT, "sprint boundary braking point reached");
     }
-    if (!boundaryCommandSafe(sprint_velocity_, 0.0)) {
+    const auto& position = fcu_odom_ptr->pose.pose.position;
+    const double cross_error = -std::sin(route_yaw_) * (position.x - corridor_lateral_reference_.x) +
+                                std::cos(route_yaw_) * (position.y - corridor_lateral_reference_.y);
+
+    // The sprint is a fixed world-frame line parallel to the wall. Do not add
+    // cross-track or visual yaw corrections here: either would create a lateral
+    // velocity component and bend the hit trajectory away from the cleared lane.
+    const double sprint_vx_world = sprint_velocity_ * std::cos(route_yaw_);
+    const double sprint_vy_world = sprint_velocity_ * std::sin(route_yaw_);
+    if (!boundaryWorldCommandSafe(sprint_vx_world, sprint_vy_world)) {
         return startBrake(BrakeOutcome::MISS_TO_WAIT, "field boundary braking point reached");
-    }
-    if (emergencyObstacleDetected()) {
-        return startBrake(BrakeOutcome::MISS_TO_WAIT,
-                          "hard obstacle detected in sprint corridor");
     }
     const double altitude = fcu_odom_ptr->pose.pose.position.z;
     if (altitude < min_attack_altitude_) {
@@ -1090,21 +1143,44 @@ NodeStatus VisualServo::executeSprint(bool target_visible, double target_age,
         return NodeStatus::RUNNING;
     }
 
-    const double sprint_yaw_rate = target_visible && !sprint_lock_visual_correction_
-        ? std::clamp(visual_yaw_rate, -sprint_visual_max_yaw_rate_,
-                     sprint_visual_max_yaw_rate_)
-        : headingHoldYawRate();
-    const double sprint_vz = std::clamp(
-        sprint_altitude_hold_gain_ * (strike_altitude_ - altitude),
-        -sprint_max_vertical_correction_, sprint_max_vertical_correction_);
-    // Match the proven initial controller: body-frame positive VX is sent directly on
-    // every sprint tick. Heading and altitude are held for a horizontal straight line.
-    publishVelocityWithYawRate(sprint_velocity_, 0, sprint_vz, sprint_yaw_rate);
+    // All position and velocity axes use the same control mode as EGO. Project
+    // the measured pose onto the fixed line; velocity supplies forward motion
+    // while position feedback rejects lateral drift without a timed blind path.
+    const double progress = std::clamp(corridorProgress(corridor_origin_),
+                                       0.0, corridor_limit_distance_);
+    const double longitudinal_progress =
+        std::cos(route_yaw_) * (position.x - corridor_lateral_reference_.x) +
+        std::sin(route_yaw_) * (position.y - corridor_lateral_reference_.y);
+    const auto local_velocity = StrikeMotion::toMavrosLocal(
+        {sprint_vx_world, sprint_vy_world});
+    const double line_x = corridor_lateral_reference_.x +
+        longitudinal_progress * std::cos(route_yaw_);
+    const double line_y = corridor_lateral_reference_.y +
+        longitudinal_progress * std::sin(route_yaw_);
+    mavros_msgs::PositionTarget command;
+    command.header.stamp = ros::Time::now();
+    command.header.frame_id = name();
+    command.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
+    command.type_mask = mavros_msgs::PositionTarget::IGNORE_AFX |
+                        mavros_msgs::PositionTarget::IGNORE_AFY |
+                        mavros_msgs::PositionTarget::IGNORE_AFZ |
+                        mavros_msgs::PositionTarget::IGNORE_YAW_RATE;
+    command.position.x = -line_y;
+    command.position.y = line_x;
+    command.position.z = strike_altitude_;
+    command.velocity.x = local_velocity.x;
+    command.velocity.y = local_velocity.y;
+    command.velocity.z = 0.0;
+    command.yaw = route_yaw_ + M_PI / 2.0;
+    resetHoverCapture();
+    mct->updateCommand(command);
+    ROS_INFO_THROTTLE(0.5, "[%s]: Corridor x=%.3f y=%.3f cross=%.3f speed=%.3f",
+                      name().c_str(), position.x, position.y, cross_error, currentSpeed());
     ROS_INFO_THROTTLE(0.5,
-                      "[%s]: SPRINT command vx=%.2f vz=%.2f z=%.2f yaw_rate=%.2f progress=%.2f/%.2fm visual=%d",
-                      name().c_str(), sprint_velocity_, sprint_vz, altitude, sprint_yaw_rate,
-                      corridorProgress(corridor_origin_), corridor_limit_distance_,
-                      target_visible && !sprint_lock_visual_correction_);
+                      "[%s]: SPRINT line command world_vx=%.2f world_vy=%.2f z=%.2f target_z=%.2f progress=%.2f/%.2fm target=%d",
+                      name().c_str(), sprint_vx_world, sprint_vy_world, altitude, strike_altitude_,
+                      progress, corridor_limit_distance_,
+                      target_visible);
     return NodeStatus::RUNNING;
 }
 
@@ -1113,20 +1189,68 @@ NodeStatus VisualServo::executeBrake() {
     const double vz = altitude < min_attack_altitude_
         ? std::abs(altitude_recovery_speed_) : 0.0;
 
-    // HIT 命中不再进入制动：startBrake 直接切入 FLY_AWAY 撤离弧线。
-    // 此处仅处理 MISS_TO_WAIT（停稳后进入等待区）与 ABORT（停稳后收尾）。
-    publishVelocityWithYawRate(0, 0, vz, headingHoldYawRate());
+    const auto& position = fcu_odom_ptr->pose.pose.position;
+    const double escape_progress =
+        std::cos(post_hit_escape_yaw_) * (position.x - brake_origin_.x) +
+        std::sin(post_hit_escape_yaw_) * (position.y - brake_origin_.y);
+    const double brake_elapsed = (ros::Time::now() - state_start_time_).toSec();
+    const bool escape_active = brake_outcome_ == BrakeOutcome::HIT &&
+        post_hit_escape_velocity_ > 0.0 && post_hit_escape_distance_ > 0.0 &&
+        post_hit_escape_time_ > 0.0 &&
+        escape_progress < post_hit_escape_distance_ &&
+        brake_elapsed < post_hit_escape_time_;
+    if (escape_active) {
+        const double current_yaw = PoseUtils::getYawFromQuat(
+            fcu_odom_ptr->pose.pose.orientation);
+        const double escape_yaw_rate = std::clamp(
+            normalizeYaw(post_hit_escape_yaw_ - current_yaw),
+            -post_hit_escape_yaw_rate_, post_hit_escape_yaw_rate_);
+        publishWorldVelocityWithYawRate(
+            post_hit_escape_velocity_ * std::cos(post_hit_escape_yaw_),
+            post_hit_escape_velocity_ * std::sin(post_hit_escape_yaw_),
+            vz, escape_yaw_rate);
+        brake_hold_start_ = ros::Time(0);
+        ROS_INFO_THROTTLE(0.25,
+                          "[%s]: HIT brake escaping wall: progress=%.2f/%.2fm yaw=%.2f",
+                          name().c_str(), escape_progress,
+                          post_hit_escape_distance_, post_hit_escape_yaw_);
+        return NodeStatus::RUNNING;
+    }
+    if (brake_escape_pending_) {
+        // Lock the stop point once after the HIT escape; never chase live odometry.
+        brake_origin_ = position;
+        brake_escape_pending_ = false;
+        ROS_INFO("[%s]: HIT escape complete; fixed brake target=(%.2f,%.2f)",
+                 name().c_str(), brake_origin_.x, brake_origin_.y);
+    }
+    publishBrakeCommand(vz);
 
     const double speed = currentSpeed();
-    if (speed <= brake_speed_threshold_) {
+    const auto brake_target = StrikeMotion::projectToCorridor(
+        brake_origin_.x, brake_origin_.y,
+        corridor_lateral_reference_.x, corridor_lateral_reference_.y, route_yaw_);
+    ROS_INFO_THROTTLE(0.5,
+                      "[%s]: BRAKING speed=%.2f target=(%.2f,%.2f) position=(%.2f,%.2f) error=%.2f",
+                      name().c_str(), speed, brake_target.x, brake_target.y,
+                      position.x, position.y,
+                      std::hypot(position.x - brake_target.x, position.y - brake_target.y));
+    const bool brake_position_reached =
+        std::hypot(position.x - brake_target.x, position.y - brake_target.y) <=
+        brake_position_tolerance_;
+    if (speed <= brake_speed_threshold_ && brake_position_reached) {
         if (brake_hold_start_.isZero()) brake_hold_start_ = ros::Time::now();
         if ((ros::Time::now() - brake_hold_start_).toSec() >= brake_hold_time_) {
             if (brake_outcome_ == BrakeOutcome::MISS_TO_WAIT) {
+                // The sprint already ends at the protected wait-zone boundary. Do not
+                // translate again after braking: the old wait-entry segment could look
+                // like a backward move because wait_velocity_ is body-frame controlled.
                 wait_entry_origin_ = fcu_odom_ptr->pose.pose.position;
-                close_target_seen_ = false;
-                state_ = ServoState::ENTERING_WAIT;
+                setDepthAssistActive(true);
+                state_ = ServoState::WAITING;
                 state_start_time_ = ros::Time::now();
-                publishDebugEvent("strike_state", "BRAKING -> ENTERING_WAIT");
+                wait_last_target_time_ = state_start_time_;
+                sendHoverCommand();
+                publishDebugEvent("strike_state", "BRAKING -> WAITING (no wait-entry translation)");
             } else {
                 state_ = ServoState::SETTLING;
                 settle_start_time_ = ros::Time::now();
@@ -1144,268 +1268,19 @@ NodeStatus VisualServo::executeBrake() {
     return NodeStatus::RUNNING;
 }
 
-NodeStatus VisualServo::executePostHitVerify() {
-    const ros::Time now = ros::Time::now();
-    sendHoverCommand();
-
-    // updateTargetData 已过滤卡尔曼外推帧；这里再要求检测时间晚于进入确认
-    // 状态的时刻，避免把命中前残留的一帧当成“又检测到气球”。
-    bool redetected = false;
-    {
-        std::lock_guard<std::mutex> lock(target_mutex_);
-        redetected = has_ever_received_data_ && !last_valid_detection_time_.isZero() &&
-                     last_valid_detection_time_ > state_start_time_;
-    }
-    if (redetected) {
-        state_ = ServoState::ALIGN;
-        state_start_time_ = now;
-        stable_track_start_ = ros::Time(0);
-        align_stable_frames_ = 0;
-        close_target_seen_ = false;
-        last_close_target_in_strike_band_ = false;
-        publishDebugEvent("strike_state", "POST_HIT_VERIFY -> ALIGN");
-        ROS_INFO("[%s]: Balloon redetected after hit; resume alignment", name().c_str());
-        return NodeStatus::RUNNING;
-    }
-
-    if ((now - state_start_time_).toSec() < post_hit_verify_time_) {
-        return NodeStatus::RUNNING;
-    }
-
-    // 未重检到气球，才进入“低速刹停 -> 转正 -> 前视深度确认 -> 逃逸”。
-    state_ = ServoState::FLY_AWAY_TURN;
-    state_start_time_ = now;
-    brake_hold_start_ = ros::Time(0);
-    escape_turn_start_time_ = ros::Time(0);
-    publishDebugEvent("strike_state", "POST_HIT_VERIFY -> FLY_AWAY_TURN");
-    ROS_INFO("[%s]: No balloon redetected for %.2fs; start escape", name().c_str(),
-             post_hit_verify_time_);
-    return NodeStatus::RUNNING;
-}
-
-NodeStatus VisualServo::executeFlyAwayTurn() {
-    const ros::Time now = ros::Time::now();
-
-    // 前视深度相机尚未转到逃逸方向时，只允许零速度刹停，禁止一边带着
-    // 冲刺惯性一边转头；低速稳定后才开始偏航。
-    publishVelocityWithYawRate(0, 0, 0, 0);
-    if (currentSpeed() > brake_speed_threshold_) {
-        brake_hold_start_ = ros::Time(0);
-        if ((now - state_start_time_).toSec() >= brake_timeout_) {
-            post_hit_lift_completed_ = true;
-            state_ = ServoState::SETTLING;
-            settle_start_time_ = now;
-            publishDebugEvent("strike_state", "FLY_AWAY brake timeout -> SETTLING");
-            ROS_ERROR("[%s]: Escape braking timeout, speed=%.2f", name().c_str(),
-                      currentSpeed());
-        }
-        return NodeStatus::RUNNING;
-    }
-    if (brake_hold_start_.isZero()) brake_hold_start_ = now;
-    if ((now - brake_hold_start_).toSec() < brake_hold_time_) {
-        return NodeStatus::RUNNING;
-    }
-    if (escape_turn_start_time_.isZero()) {
-        // 制动完成的当前位置作为整个转头阶段的位置锁定点。使用绝对位置
-        // 设定而不是零速度，避免惯性、风或底层位置环残留导致边转边漂移。
-        escape_turn_hold_pos_ = fcu_odom_ptr->pose.pose.position;
-        escape_turn_start_time_ = now;
-        escape_turn_command_time_ = now;
-        escape_turn_yaw_setpoint_ = PoseUtils::getYawFromQuat(
-            fcu_odom_ptr->pose.pose.orientation);
-        ROS_INFO("[%s]: Escape turn position lock at (%.2f, %.2f, %.2f)",
-                 name().c_str(), escape_turn_hold_pos_.x, escape_turn_hold_pos_.y,
-                 escape_turn_hold_pos_.z);
-    }
-
-    const double current_yaw = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
-    const double yaw_error = normalizeYaw(post_hit_escape_yaw_ - current_yaw);
-
-    // 锁定位置并以受限角速度推进航向：转头期间不产生任何平移轨迹。
-    const double yaw_dt = std::max(0.001, (now - escape_turn_command_time_).toSec());
-    escape_turn_command_time_ = now;
-    const double yaw_step = std::clamp(
-        normalizeYaw(post_hit_escape_yaw_ - escape_turn_yaw_setpoint_),
-        -post_hit_escape_yaw_rate_ * yaw_dt, post_hit_escape_yaw_rate_ * yaw_dt);
-    escape_turn_yaw_setpoint_ = normalizeYaw(escape_turn_yaw_setpoint_ + yaw_step);
-    publishPosition(escape_turn_hold_pos_, escape_turn_yaw_setpoint_);
-
-    constexpr double kTurnTolerance = 0.10;  // rad，约 6 度
-    constexpr double kTurnTimeout = 6.0;
-    const double elapsed = (now - escape_turn_start_time_).toSec();
-    if (std::abs(yaw_error) <= kTurnTolerance) {
-        double hard_clearance;
-        double target_depth;
-        const double required_clearance = std::max(
-            emergency_clearance_, post_hit_escape_distance_ +
-            stoppingDistance(post_hit_escape_velocity_) + 0.10);
-        if (!getDepthSnapshot(hard_clearance, target_depth) ||
-            !std::isfinite(hard_clearance) || hard_clearance < required_clearance) {
-            sendHoverCommand();
-            post_hit_lift_completed_ = true;
-            state_ = ServoState::SETTLING;
-            settle_start_time_ = now;
-            publishDebugEvent("strike_state", "FLY_AWAY depth blocked -> SETTLING");
-            ROS_WARN("[%s]: Escape inhibited: front depth unavailable/blocked (clearance=%.2f required=%.2f)",
-                     name().c_str(), hard_clearance, required_clearance);
-            return NodeStatus::RUNNING;
-        }
-        arc_start_pos_ = fcu_odom_ptr->pose.pose.position;
-        arc_start_time_ = now;
-        state_ = ServoState::FLY_AWAY;
-        publishDebugEvent("strike_state", "FLY_AWAY_TURN -> FLY_AWAY");
-        ROS_INFO("[%s]: Escape heading aligned: yaw=%.2f target=%.2f", name().c_str(),
-                 current_yaw, post_hit_escape_yaw_);
-    } else if (elapsed >= kTurnTimeout) {
-        sendHoverCommand();
-        post_hit_lift_completed_ = true;
-        state_ = ServoState::SETTLING;
-        settle_start_time_ = now;
-        publishDebugEvent("strike_state", "FLY_AWAY_TURN timeout -> SETTLING");
-        ROS_ERROR("[%s]: Escape turn timeout: yaw_error=%.2f", name().c_str(), yaw_error);
-    }
-    return NodeStatus::RUNNING;
-}
-
-NodeStatus VisualServo::executeFlyAway() {
-    const ros::Time now = ros::Time::now();
-    const double t = (now - arc_start_time_).toSec();
-    const double altitude = fcu_odom_ptr->pose.pose.position.z;
-    const auto& position = fcu_odom_ptr->pose.pose.position;
-
-    // 转正完成后，撤离时长以逃逸时间上限为基准。
-    const double arc_T = std::max(0.5, post_hit_escape_time_);
-    // 已在 FLY_AWAY_TURN 对准机头，故只沿逃逸朝向移动，禁止残留冲刺方向
-    // 的分量，避免形成侧飞与横滚。
-    const double esc_x = post_hit_escape_velocity_ * std::cos(post_hit_escape_yaw_);
-    const double esc_y = post_hit_escape_velocity_ * std::sin(post_hit_escape_yaw_);
-
-    // 垂直分量：撤离的同时直接爬升到抬升目标，
-    //    低位保护兜底：低于最低攻击高度时强制向上
-    double vz = std::clamp((arc_target_z_ - altitude) / 0.8, -max_vz_, max_vz_);
-    if (altitude < min_attack_altitude_ + altitude_guard_margin_) {
-        vz = std::max(vz, std::abs(altitude_recovery_speed_));
-    }
-
-    const double vx = esc_x;
-    const double vy = esc_y;
-
-    // 此时前视深度相机已经对准逃逸方向。没有新鲜深度或前方余量不足时，
-    // 不允许继续前飞，避免单目方向外的障碍在转正后才被发现。
-    double hard_clearance = std::numeric_limits<double>::infinity();
-    double target_depth = std::numeric_limits<double>::infinity();
-    const double required_clearance = std::max(
-        emergency_clearance_, post_hit_escape_distance_ +
-        stoppingDistance(post_hit_escape_velocity_) + 0.10);
-    if (!getDepthSnapshot(hard_clearance, target_depth) ||
-        !std::isfinite(hard_clearance) || hard_clearance < required_clearance) {
-        sendHoverCommand();
-        post_hit_lift_completed_ = true;
-        state_ = ServoState::SETTLING;
-        settle_start_time_ = now;
-        publishDebugEvent("strike_state", "FLY_AWAY depth blocked -> SETTLING");
-        ROS_WARN("[%s]: Escape stopped by front depth (clearance=%.2f required=%.2f)",
-                 name().c_str(), hard_clearance, required_clearance);
-        return NodeStatus::RUNNING;
-    }
-
-    // 安全门控：当前位置已贴近/越出命令安全区（含 boundary_margin 内缩），
-    // 或冲刺走廊内出现硬障碍时，立即悬停收尾，不再发布任何移动指令
-    const bool position_unsafe =
-        position.x < boundary_x_min_ + boundary_margin_ ||
-        position.x > boundary_x_max_ - boundary_margin_ ||
-        position.y < boundary_y_min_ + boundary_margin_ ||
-        position.y > boundary_y_max_ - boundary_margin_;
-    if (position_unsafe || emergencyObstacleDetected()) {
-        sendHoverCommand();
-        post_hit_lift_completed_ = true;
-        state_ = ServoState::SETTLING;
-        settle_start_time_ = now;
-        publishDebugEvent("strike_state", "FLY_AWAY blocked -> SETTLING");
-        ROS_WARN("[%s]: Fly-away arc blocked at t=%.2f pos=(%.2f,%.2f), hover and settle",
-                 name().c_str(), t, position.x, position.y);
-        return NodeStatus::RUNNING;
-    }
-
-    // 命令级边界检查（body 系换算后复用 boundaryCommandSafe 的投影预测）
-    const double current_yaw = PoseUtils::getYawFromQuat(fcu_odom_ptr->pose.pose.orientation);
-    const double body_vx = std::cos(current_yaw) * vx + std::sin(current_yaw) * vy;
-    const double body_vy = std::sin(current_yaw) * vx - std::cos(current_yaw) * vy;
-    if (!boundaryCommandSafe(body_vx, body_vy)) {
-        sendHoverCommand();
-        post_hit_lift_completed_ = true;
-        state_ = ServoState::SETTLING;
-        settle_start_time_ = now;
-        publishDebugEvent("strike_state", "FLY_AWAY command blocked -> SETTLING");
-        return NodeStatus::RUNNING;
-    }
-
-    // 机头以小角速度转向离墙方向（鹰式侧摆，不急转）
-    const double yaw_rate = std::clamp(
-        normalizeYaw(post_hit_escape_yaw_ - current_yaw),
-        -post_hit_escape_yaw_rate_, post_hit_escape_yaw_rate_);
-
-    publishWorldVelocityWithYawRate(vx, vy, vz, yaw_rate);
-
-    // 结束条件：侧移与爬升均到位，或超时兜底；此后进入 SETTLING，
-    // 抬升已在弧线内完成，finishAfterSettle 直接交还行为树
-    const double lateral_progress =
-        std::cos(post_hit_escape_yaw_) * (position.x - arc_start_pos_.x) +
-        std::sin(post_hit_escape_yaw_) * (position.y - arc_start_pos_.y);
-    const bool lateral_done = lateral_progress >= post_hit_escape_distance_;
-    const bool climb_done = altitude >= arc_target_z_ - post_hit_lift_tolerance_;
-    if ((lateral_done && climb_done) || t >= arc_T + 1.0) {
-        post_hit_lift_completed_ = true;
-        state_ = ServoState::SETTLING;
-        settle_start_time_ = now;
-        publishDebugEvent("strike_state", "FLY_AWAY -> SETTLING");
-        ROS_INFO("[%s]: Fly-away arc done: t=%.2f lateral=%.2f/%.2f z=%.2f/%.2f",
-                 name().c_str(), t, lateral_progress, post_hit_escape_distance_,
-                 altitude, arc_target_z_);
-    }
-    return NodeStatus::RUNNING;
-}
-
 NodeStatus VisualServo::executeWaitEntry() {
-    PixelTarget target;
-    double target_age;
-    double hard_clearance;
-    double target_depth;
-    const bool target_valid = getTargetSnapshot(target, target_age);
-    const bool depth_fresh = getDepthSnapshot(hard_clearance, target_depth);
-    if (target_valid && depth_fresh && std::isfinite(target_depth) &&
-        target_depth <= wait_contact_distance_) {
-        return startBrake(BrakeOutcome::HIT, "balloon contacted while entering wait zone");
-    }
-
-    const double progress = corridorProgress(wait_entry_origin_);
-    const bool entry_complete = progress >= wait_entry_distance_;
-    const bool blocked = emergencyObstacleDetected();
-    const bool at_boundary = !boundaryCommandSafe(wait_velocity_, 0.0);
-    const bool timeout = (ros::Time::now() - state_start_time_).toSec() >= 4.0;
-    if (entry_complete || blocked || at_boundary || timeout) {
-        sendHoverCommand();
-        state_ = ServoState::WAITING;
-        state_start_time_ = ros::Time::now();
-        wait_last_target_time_ = state_start_time_;
-        close_target_seen_ = false;
-        publishDebugEvent("strike_state", "ENTERING_WAIT -> WAITING");
-        return NodeStatus::RUNNING;
-    }
-
-    if (!publishGuardedVelocity(wait_velocity_, 0, 0, headingHoldYawRate(), 0.0, false)) {
-        sendHoverCommand();
-        state_ = ServoState::WAITING;
-        state_start_time_ = ros::Time::now();
-        wait_last_target_time_ = state_start_time_;
-        close_target_seen_ = false;
-        publishDebugEvent("strike_state", "ENTERING_WAIT blocked -> WAITING");
-    }
+    // Kept for older XML trees. The current sprint reaches the wait-zone boundary
+    // before braking, so entering this state must never add another horizontal leg.
+    sendHoverCommand();
+    state_ = ServoState::WAITING;
+    state_start_time_ = ros::Time::now();
+    wait_last_target_time_ = state_start_time_;
+    publishDebugEvent("strike_state", "ENTERING_WAIT -> WAITING (no wait-entry translation)");
     return NodeStatus::RUNNING;
 }
 
 NodeStatus VisualServo::executeWaiting() {
-    publishVelocityWithYawRate(0, 0, 0, headingHoldYawRate());
+    sendHoverCommand();
 
     PixelTarget target;
     double target_age;
@@ -1444,6 +1319,8 @@ NodeStatus VisualServo::startRecovery() {
     state_ = ServoState::RECOVERY;
     state_start_time_ = ros::Time::now();
     align_stable_frames_ = 0;
+    stable_track_start_ = ros::Time(0);
+    strike_position_reached_ = false;
     sendHoverCommand();
     publishDebugEvent("strike_state", "TARGET LOST -> RECOVERY");
     return NodeStatus::RUNNING;
@@ -1456,45 +1333,79 @@ NodeStatus VisualServo::executeRecovery() {
     }
     const double phase = std::fmod(elapsed, 2.4);
     const double scan_rate = phase < 1.2 ? recovery_yaw_rate_ : -recovery_yaw_rate_;
-    publishVelocityWithYawRate(0, 0, 0,
-                               std::clamp(scan_rate, -max_yaw_rate_, max_yaw_rate_));
+    publishStagingHold(0, std::clamp(scan_rate, -max_yaw_rate_, max_yaw_rate_));
     return NodeStatus::RUNNING;
 }
 
 NodeStatus VisualServo::startPostHitLift() {
     post_hit_lift_start_pos_ = fcu_odom_ptr->pose.pose.position;
-    post_hit_lift_target_z_ = post_hit_lift_start_pos_.z + post_hit_lift_height_;
+    post_hit_lift_target_pos_ = post_hit_lift_start_pos_;
+    const double backoff = StrikeMotion::boundedBackoffDistance(
+        post_hit_lift_start_pos_.x, post_hit_lift_start_pos_.y, route_yaw_,
+        corridorProgress(corridor_origin_), post_hit_backoff_distance_,
+        boundary_x_min_ + boundary_margin_, boundary_x_max_ - boundary_margin_,
+        boundary_y_min_ + boundary_margin_, boundary_y_max_ - boundary_margin_);
+    post_hit_lift_target_pos_.x -= backoff * std::cos(route_yaw_);
+    post_hit_lift_target_pos_.y -= backoff * std::sin(route_yaw_);
+    post_hit_lift_target_pos_.z += post_hit_lift_height_;
+    post_hit_lift_target_z_ = post_hit_lift_target_pos_.z;
     post_hit_lift_yaw_ = PoseUtils::getYawFromQuat(
         fcu_odom_ptr->pose.pose.orientation);
     lift_start_time_ = ros::Time::now();
     state_ = ServoState::LIFTING;
     publishDebugEvent("strike_state", "SETTLING -> LIFTING");
-    ROS_INFO("[%s]: Post-hit lift started: z=%.2f target_z=%.2f height=%.2f",
+    ROS_INFO("[%s]: Post-hit lift/backoff started: z=%.2f target_z=%.2f backoff=%.2f",
              name().c_str(), post_hit_lift_start_pos_.z,
-             post_hit_lift_target_z_, post_hit_lift_height_);
+             post_hit_lift_target_z_, backoff);
     return NodeStatus::RUNNING;
 }
 
 NodeStatus VisualServo::executePostHitLift() {
     const double elapsed = (ros::Time::now() - lift_start_time_).toSec();
-    const double ratio = std::clamp(elapsed / post_hit_lift_time_, 0.0, 1.0);
+    const bool backoff_active = std::hypot(
+        post_hit_lift_target_pos_.x - post_hit_lift_start_pos_.x,
+        post_hit_lift_target_pos_.y - post_hit_lift_start_pos_.y) > 1e-3;
+    const double maneuver_time = backoff_active
+        ? std::max(post_hit_lift_time_, post_hit_backoff_time_) : post_hit_lift_time_;
+    const double ratio = std::clamp(elapsed / maneuver_time, 0.0, 1.0);
     const double smooth_ratio = ratio * ratio * (3.0 - 2.0 * ratio);
-    geometry_msgs::Point lift_target = post_hit_lift_start_pos_;
-    lift_target.z += post_hit_lift_height_ * smooth_ratio;
+    geometry_msgs::Point lift_target;
+    lift_target.x = post_hit_lift_start_pos_.x +
+        (post_hit_lift_target_pos_.x - post_hit_lift_start_pos_.x) * smooth_ratio;
+    lift_target.y = post_hit_lift_start_pos_.y +
+        (post_hit_lift_target_pos_.y - post_hit_lift_start_pos_.y) * smooth_ratio;
+    lift_target.z = post_hit_lift_start_pos_.z + post_hit_lift_height_ * smooth_ratio;
     publishPosition(lift_target, post_hit_lift_yaw_);
 
-    const double current_z = fcu_odom_ptr->pose.pose.position.z;
+    const auto& current = fcu_odom_ptr->pose.pose.position;
+    const double current_z = current.z;
     const bool height_reached =
-        std::abs(current_z - post_hit_lift_target_z_) <= post_hit_lift_tolerance_;
-    const bool timed_out = elapsed >= post_hit_lift_timeout_;
-    if (height_reached || timed_out) {
+        current_z >= post_hit_lift_target_z_ - post_hit_lift_tolerance_;
+    const bool backoff_reached = !backoff_active ||
+        std::hypot(current.x - post_hit_lift_target_pos_.x,
+                   current.y - post_hit_lift_target_pos_.y) <= post_hit_backoff_tolerance_;
+    const bool timed_out = elapsed >= (backoff_active
+        ? std::max(post_hit_lift_timeout_, maneuver_time + 1.0) : post_hit_lift_timeout_);
+    if (height_reached && (!backoff_active ||
+        (ratio >= 1.0 && (backoff_reached || timed_out)))) {
+        if (!backoff_reached) {
+            ROS_WARN("[%s]: Post-hit backoff did not reach target; handing off to obstacle-aware return planner",
+                     name().c_str());
+            publishDebugEvent("strike_backoff", "timed out; planner will handle remaining XY");
+        }
         post_hit_lift_completed_ = true;
         state_ = ServoState::SETTLING;
         settle_start_time_ = ros::Time::now();
         publishDebugEvent("strike_state", "LIFTING -> SETTLING");
-        ROS_INFO("[%s]: Post-hit lift finished: reached=%d z=%.2f target_z=%.2f elapsed=%.2f",
-                 name().c_str(), height_reached, current_z,
+        ROS_INFO("[%s]: Post-hit lift/backoff finished: z=%.2f target_z=%.2f elapsed=%.2f",
+                 name().c_str(), current_z,
                  post_hit_lift_target_z_, elapsed);
+    } else if (timed_out) {
+        ROS_WARN_THROTTLE(1.0,
+                          "[%s]: Post-hit lift/backoff incomplete: z=%.2f target_z=%.2f xy_error=%.2f; holding before return",
+                          name().c_str(), current_z, post_hit_lift_target_z_,
+                          std::hypot(current.x - post_hit_lift_target_pos_.x,
+                                     current.y - post_hit_lift_target_pos_.y));
     }
     return NodeStatus::RUNNING;
 }
@@ -1509,6 +1420,7 @@ NodeStatus VisualServo::finishAfterSettle() {
     if (success && !post_hit_lift_completed_ && post_hit_lift_height_ > 0.0) {
         return startPostHitLift();
     }
+    setDepthAssistActive(false);
     publishDebugEvent(success ? "strike_success" : "strike_failure", finish_reason_);
     return success ? NodeStatus::SUCCESS : NodeStatus::FAILURE;
 }
